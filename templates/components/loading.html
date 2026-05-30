@@ -1,0 +1,12 @@
+{# Skeleton rows (FR-110 骨架屏) #}
+{% macro skeleton_rows(rows=5, cols=4) %}
+<div class="space-y-2.5" aria-busy="true" aria-label="{{ t('state.loading') }}">
+  {% for _ in range(rows) %}
+    <div class="grid gap-3" style="grid-template-columns: repeat({{ cols }}, minmax(0, 1fr));">
+      {% for _ in range(cols) %}
+        <div class="skeleton h-6"></div>
+      {% endfor %}
+    </div>
+  {% endfor %}
+</div>
+{% endmacro %}

@@ -1,0 +1,99 @@
+{# ── Sidebar (shadcn base-nova adapted) ───────────────────────────────────
+   Grouped nav · Lucide icon container · active state with shadow ·
+   user card + dropdown footer.
+   Admin section gated by user.is_admin (FR-012).
+#}
+{% from "components/icon.html" import icon %}
+
+{% set current = request.url.path if request is defined else "" %}
+
+{% macro nav_item(href, label, icon_name, badge=None) %}
+  {% set active = (current == href) or (href != "/dashboard" and current.startswith(href)) %}
+  <li>
+    <a href="{{ href }}" class="nav-item group {% if active %}nav-item-active{% endif %}">
+      <span class="nav-icon {% if active %}nav-icon-active{% endif %}">
+        {{ icon(icon_name, class="h-4 w-4") }}
+      </span>
+      <span class="flex-1">{{ label }}</span>
+      {% if badge %}
+        <span class="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+          {{ icon("sparkles", class="h-2.5 w-2.5") }}{{ badge }}
+        </span>
+      {% endif %}
+    </a>
+  </li>
+{% endmacro %}
+
+<aside class="flex w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
+
+  {# ── Header / brand ──────────────────────────────────────────────────── #}
+  <div class="p-4">
+    <a href="/dashboard" class="flex items-center gap-3 rounded-lg p-1 transition-colors hover:bg-sidebar-accent/50">
+      <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+        {{ icon("zap", class="h-5 w-5") }}
+      </span>
+      <span class="flex flex-col leading-tight">
+        <span class="text-base font-bold tracking-tight">runwhere.ai</span>
+        <span class="text-xs text-muted-foreground">AI 训推一体平台</span>
+      </span>
+    </a>
+  </div>
+
+  {# ── Nav body ────────────────────────────────────────────────────────── #}
+  <div class="flex-1 overflow-y-auto px-3 py-2">
+
+    {# Top-level (no label) #}
+    <ul class="space-y-0.5">
+      {{ nav_item("/dashboard", t("nav.dashboard"), "layout-dashboard") }}
+    </ul>
+
+    {# Group: my workspace #}
+    <div class="mt-4 mb-1 px-3 text-xs font-semibold tracking-wide text-muted-foreground/70">
+      {{ t("nav.section.my_workspace") }}
+    </div>
+    <ul class="space-y-0.5">
+      {{ nav_item("/notebooks",  t("nav.notebooks"),  "book-open") }}
+      {{ nav_item("/trainings",  t("nav.trainings"),  "rocket") }}
+      {{ nav_item("/inferences", t("nav.inferences"), "zap") }}
+      {{ nav_item("/computes",   t("nav.computes"),   "cpu") }}
+    </ul>
+
+    {# Group: admin (only when user is admin) #}
+    {% if user is defined and user and user.is_admin %}
+      <div class="mt-4 mb-1 px-3 text-xs font-semibold tracking-wide text-muted-foreground/70">
+        {{ t("nav.section.platform") }}
+      </div>
+      <ul class="space-y-0.5">
+        {{ nav_item("/pools",      t("nav.pools"),      "database") }}
+        {{ nav_item("/nodes",      t("nav.nodes"),      "server") }}
+        {{ nav_item("/quotas",     t("nav.quotas"),     "shield") }}
+        {{ nav_item("/namespaces", t("nav.namespaces"), "folder") }}
+      </ul>
+    {% endif %}
+  </div>
+
+  {# ── Footer / user card ──────────────────────────────────────────────── #}
+  {% if user is defined and user %}
+  <div class="border-t border-sidebar-border p-2">
+    <div class="flex items-center gap-2 rounded-lg p-2 hover:bg-sidebar-accent/50 transition-colors">
+      <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        {{ icon("user-round", class="h-4 w-4") }}
+      </span>
+      <span class="flex min-w-0 flex-col text-left leading-tight">
+        <span class="truncate text-sm font-medium">{{ user.display_name or user.subject }}</span>
+        {% if user.namespaces %}
+          <span class="truncate text-xs text-muted-foreground">{{ user.namespaces[0] }}{% if user.namespaces|length > 1 %} +{{ user.namespaces|length - 1 }}{% endif %}</span>
+        {% endif %}
+      </span>
+      <form method="post" action="/logout" class="ml-auto">
+        <button type="submit"
+                class="btn-ghost btn h-7 w-7 p-0 rounded-md"
+                title="{{ t('nav.logout') }}"
+                aria-label="{{ t('nav.logout') }}">
+          {{ icon("log-out", class="h-3.5 w-3.5") }}
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+</aside>

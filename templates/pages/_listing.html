@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}{{ page_title }} · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">{{ page_title }}</span>{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl">
+
+  {# ── Card wrapping the data table ────────────────────────────────────── #}
+  <div class="card flex flex-col py-4 gap-4 overflow-hidden">
+
+    {# CardHeader: title + count + primary CTA #}
+    <div class="px-4 grid grid-cols-[1fr_auto] items-start gap-1">
+      <div class="text-base leading-snug font-medium">
+        {{ page_title }}（{{ rows|length }}）
+      </div>
+      {% if primary_cta %}
+        <a href="{{ primary_cta.href }}" class="btn btn-primary">
+          {{ icon(primary_cta.icon, class="h-4 w-4") }} {{ primary_cta.label }}
+        </a>
+      {% endif %}
+    </div>
+
+    {# CardContent #}
+    <div class="px-4 space-y-4">
+
+      {# Toolbar: search input #}
+      <div class="flex items-center justify-between gap-2">
+        <input type="text" placeholder="搜索…"
+               class="h-8 w-64 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring" />
+      </div>
+
+      {# Table card #}
+      <div class="rounded-md border border-border">
+        <div class="relative w-full overflow-x-auto">
+          <table class="w-full caption-bottom text-sm">
+            <thead class="[&_tr]:border-b">
+              <tr>
+                {% for col in columns %}
+                  <th class="h-10 px-2 align-middle font-medium whitespace-nowrap text-foreground
+                             {% if col.align == 'right' %}text-right{% else %}text-left{% endif %}">
+                    {{ col.label }}
+                  </th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody class="[&_tr:last-child]:border-0">
+              {% for row in rows %}
+                <tr class="border-b transition-colors hover:bg-muted/50">
+                  {% for cell in row %}
+                    {% set col = columns[loop.index0] %}
+                    {% set is_right = col.align == 'right' %}
+                    <td class="p-2 align-middle whitespace-nowrap
+                               {% if is_right %}text-right tabular-nums{% endif %}">
+                      {% if cell is mapping %}
+                        {% if cell.badge %}
+                          <span class="badge badge-{{ cell.tone or 'neutral' }} font-medium">
+                            {{ cell.badge }}
+                          </span>
+                        {% elif cell.kind %}
+                          <span class="badge badge-kind-{{ cell.kind }} font-medium">
+                            {{ cell.label or cell.kind }}
+                          </span>
+                        {% elif cell.mono %}
+                          <span class="font-mono text-xs text-muted-foreground">{{ cell.mono }}</span>
+                        {% elif cell.muted %}
+                          <span class="text-muted-foreground">{{ cell.muted }}</span>
+                        {% elif cell.bar is defined and cell.bar is not none %}
+                          {% set pct = cell.bar | int %}
+                          {% set lbl = cell.label or (pct ~ '%') %}
+                          {% set is_fail = cell.label and ('OOM' in cell.label or '失败' in cell.label) %}
+                          {% set is_done = pct >= 100 %}
+                          <span class="tabular-nums
+                            {% if is_fail %}text-destructive font-medium
+                            {% elif is_done %}text-emerald-600 dark:text-emerald-400 font-medium
+                            {% else %}text-foreground{% endif %}">{{ lbl }}</span>
+                        {% elif cell.title %}
+                          <div class="flex flex-col">
+                            <span class="font-medium truncate">{{ cell.title }}</span>
+                            {% if cell.sub %}<span class="text-xs text-muted-foreground">{{ cell.sub }}</span>{% endif %}
+                          </div>
+                        {% else %}
+                          {{ cell.text or '' }}
+                        {% endif %}
+                      {% else %}
+                        {{ cell }}
+                      {% endif %}
+                    </td>
+                  {% endfor %}
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {# Pagination #}
+      <div class="flex items-center justify-between px-2">
+        <div class="flex-1 text-sm text-muted-foreground">
+          共 <span class="tabular-nums">{{ rows|length }}</span> 行
+        </div>
+        <div class="flex items-center gap-6">
+          <div class="text-sm">第 <span class="tabular-nums">1</span> / <span class="tabular-nums">1</span> 页</div>
+          <div class="flex items-center gap-1">
+            <button class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background text-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-background transition-colors" disabled aria-label="上一页">
+              {{ icon("chevron-left", class="h-4 w-4") }}
+            </button>
+            <button class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background text-foreground hover:bg-muted disabled:opacity-40 disabled:hover:bg-background transition-colors" disabled aria-label="下一页">
+              {{ icon("chevron-right", class="h-4 w-4") }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

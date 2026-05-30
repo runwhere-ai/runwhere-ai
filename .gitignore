@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+.coverage
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+
+# Poetry
+.venv/
+dist/
+build/
+
+# Tailwind binary (download via scripts/install-tailwind.sh)
+tools/tailwindcss
+tools/tailwindcss-*
+
+# Generated CSS (rebuild via `make tailwind`)
+static/css/tailwind.css
+
+# Playwright browser cache
+test-results/
+playwright-report/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Secrets / env
+.env
+.env.local

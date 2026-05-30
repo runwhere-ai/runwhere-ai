@@ -1,0 +1,20 @@
+{# Empty state (FR-110) #}
+{% from "components/icon.html" import icon %}
+{% macro empty_state(title=None, hint=None, cta_label=None, cta_url=None) %}
+<div class="flex flex-col items-center justify-center py-20 text-center">
+  <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
+    {{ icon("folder", class="h-6 w-6") }}
+  </div>
+  <h3 class="text-base font-medium text-foreground">
+    {{ title or t("state.empty.title") }}
+  </h3>
+  {% if hint %}
+    <p class="mt-1 text-sm text-muted-foreground max-w-sm">{{ hint }}</p>
+  {% endif %}
+  {% if cta_label and cta_url %}
+    <a href="{{ cta_url }}" class="btn btn-primary mt-5">
+      {{ cta_label }}
+    </a>
+  {% endif %}
+</div>
+{% endmacro %}

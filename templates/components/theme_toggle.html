@@ -1,0 +1,11 @@
+{# Theme toggle button — uses static/js/theme-toggle.js #}
+{% from "components/icon.html" import icon %}
+<button
+  type="button"
+  onclick="window.rwaiTheme.toggle()"
+  class="btn-ghost btn h-8 w-8 p-0 rounded-lg"
+  title="切换主题"
+  aria-label="切换主题">
+  <span class="hidden dark:inline">{{ icon("sun", class="h-4 w-4") }}</span>
+  <span class="dark:hidden">{{ icon("moon", class="h-4 w-4") }}</span>
+</button>

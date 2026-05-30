@@ -1,0 +1,40 @@
+{# Card primitives matching shadcn base-nova layout. #}
+
+{% macro card_open(class="") %}
+  <div class="card flex flex-col gap-3 py-4 overflow-hidden {{ class }}">
+{% endmacro %}
+
+{% macro card_close() %}
+  </div>
+{% endmacro %}
+
+{% macro card_header(title=None, description=None, action=None) %}
+  <div class="grid items-start gap-1 px-4 {% if action %}grid-cols-[1fr_auto]{% endif %}">
+    <div>
+      {% if title %}<div class="text-base leading-snug font-medium">{{ title }}</div>{% endif %}
+      {% if description %}<div class="text-sm text-muted-foreground">{{ description }}</div>{% endif %}
+    </div>
+    {% if action %}<div class="self-start">{{ action | safe }}</div>{% endif %}
+  </div>
+{% endmacro %}
+
+{% macro card_content() %}
+  <div class="px-4">
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{% macro card_footer() %}
+  <div class="flex items-center border-t border-border bg-muted/50 px-4 py-3 mt-2">
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{# Metric card — used by dashboard for KPI tiles. #}
+{% macro metric(label, value, hint=None, accent=None) %}
+  <div class="card p-5">
+    <div class="text-sm text-muted-foreground">{{ label }}</div>
+    <div class="mt-2 text-3xl font-semibold tracking-tight {% if accent %}text-{{ accent }}{% endif %}">{{ value }}</div>
+    {% if hint %}<div class="mt-1 text-xs text-muted-foreground">{{ hint }}</div>{% endif %}
+  </div>
+{% endmacro %}

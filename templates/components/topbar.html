@@ -1,0 +1,16 @@
+{# Top bar — breadcrumb on left, conn status + theme toggle + user on right #}
+{% from "components/icon.html" import icon %}
+
+<header class="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
+
+  {# Breadcrumb slot (page-specific) #}
+  <nav class="flex-1 text-sm text-muted-foreground">
+    {% block breadcrumb %}{% endblock %}
+  </nav>
+
+  {# Right cluster #}
+  <div class="flex items-center gap-2">
+    {% include "components/conn_status.html" %}
+    {% include "components/theme_toggle.html" %}
+  </div>
+</header>

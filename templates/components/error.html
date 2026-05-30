@@ -1,0 +1,18 @@
+{# Inline error state (FR-110) — full page error uses pages/_error.html #}
+{% from "components/icon.html" import icon %}
+{% macro error_state(title=None, detail=None, retry_url=None) %}
+<div class="banner banner-error">
+  <div class="flex gap-2 items-start">
+    <span class="mt-0.5 text-destructive">{{ icon("alert-triangle", class="h-4 w-4") }}</span>
+    <div class="flex-1">
+      <div class="font-medium">{{ title or t("state.error.title") }}</div>
+      {% if detail %}<p class="mt-1 text-sm">{{ detail }}</p>{% endif %}
+      {% if retry_url %}
+        <button hx-get="{{ retry_url }}" hx-swap="outerHTML" class="btn btn-destructive mt-3">
+          {{ t("state.error.retry") }}
+        </button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endmacro %}

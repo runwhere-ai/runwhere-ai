@@ -1,0 +1,128 @@
+"""FastAPI application entrypoint for runwhere-ai.
+
+Mounts BOTH gpuctl's existing `/api/v1/*` JSON routes AND the new
+HTML / HTMX UI routes in the same process (spec FR-116). The browser
+talks only to this process; K8s API is reached exclusively from the
+server-side Service layer (spec FR-115).
+"""
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from src import __version__
+from src.config import CONFIG
+
+logger = logging.getLogger("src")
+logging.basicConfig(
+    level=getattr(logging, CONFIG.log_level.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+# Repository-root anchor for static/templates lookup.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup / shutdown wiring.
+
+    Foundation phase will wire the SharedInformer, TopicBus, IdleWatcher etc.
+    For now we just log readiness.
+    """
+    logger.info("runwhere-ai %s starting…", __version__)
+    # TODO(Phase 2): start SharedInformer, TopicBus, IdleWatcher here.
+    yield
+    logger.info("runwhere-ai shutting down…")
+
+
+def create_app() -> FastAPI:
+    """Application factory — used both by uvicorn and by tests."""
+    app = FastAPI(
+        title="runwhere-ai",
+        description="一体化 Web 控制台：Notebook · Training · Inference · Compute",
+        version=__version__,
+        lifespan=lifespan,
+    )
+
+    # ── Mount static assets ──────────────────────────────────────────────────
+    static_dir = _PROJECT_ROOT / CONFIG.static_dir
+    if static_dir.is_dir():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+    else:
+        logger.warning("static dir %s does not exist; /static will 404", static_dir)
+
+    # ── Mount gpuctl's existing /api/v1/* routers ───────────────────────────
+    # These are reused verbatim (CLI ↔ UI single source of truth, spec FR-117).
+    try:
+        from server.routes import (  # type: ignore
+            jobs_router,
+            pools_router,
+            nodes_router,
+            labels_router,
+            global_labels_router,
+            quotas_router,
+            namespaces_router,
+        )
+
+        app.include_router(jobs_router)
+        app.include_router(pools_router)
+        app.include_router(labels_router)
+        app.include_router(nodes_router)
+        app.include_router(quotas_router)
+        app.include_router(namespaces_router)
+        app.include_router(global_labels_router)
+        logger.info("gpuctl /api/v1/* routers mounted")
+    except Exception as exc:  # pragma: no cover - boot-time wiring
+        logger.warning("gpuctl routers not mounted (%s); /api/v1/* will be absent.", exc)
+
+    # ── Mount runwhere-ai UI routes (Phase 2 will populate) ──────────────────
+    try:
+        from src.webui import register_routes
+
+        register_routes(app)
+        logger.info("runwhere-ai UI routes mounted")
+    except ImportError:
+        logger.info("src.webui not yet wired; UI routes deferred to Phase 2.")
+
+    # ── Health & meta ────────────────────────────────────────────────────────
+    @app.get("/health")
+    async def health() -> JSONResponse:
+        return JSONResponse({"status": "ok", "version": __version__})
+
+    @app.get("/_meta")
+    async def meta() -> JSONResponse:
+        return JSONResponse(
+            {
+                "name": "runwhere-ai",
+                "version": __version__,
+                "auth_provider": CONFIG.auth_provider,
+            }
+        )
+
+    return app
+
+
+app = create_app()
+
+
+def run() -> None:
+    """`runwhere-ai` CLI entrypoint — wraps uvicorn for `poetry run runwhere-ai`."""
+    import uvicorn
+
+    uvicorn.run(
+        "src.main:app",
+        host=CONFIG.host,
+        port=CONFIG.port,
+        reload=True,
+        log_level=CONFIG.log_level.lower(),
+    )
+
+
+if __name__ == "__main__":
+    run()

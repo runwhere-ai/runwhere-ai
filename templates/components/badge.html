@@ -1,0 +1,19 @@
+{# ── Status badges (FR-022 + FR-112) ───────────────────────────────────── #}
+
+{# Job/workload status badge. Accepts a StatusVM (raw / color / label / explanation). #}
+{% macro status_badge(status, events=None) %}
+  <span class="badge badge-{{ status.color }}"
+        data-status="{{ status.raw }}"
+        title="{{ status.explanation }}">
+    <span class="conn-dot {% if status.color == 'running' %}conn-online{% elif status.color == 'warning' %}conn-degraded{% elif status.color == 'danger' %}conn-offline{% else %}bg-current{% endif %}"></span>
+    {{ status.label }}
+  </span>
+{% endmacro %}
+
+{# Workload kind badge — training/inference/notebook/compute → distinct colors #}
+{% macro kind_badge(kind) %}
+  {% set kind_str = kind.value if kind.value is defined else kind %}
+  <span class="badge badge-kind-{{ kind_str }}">
+    {{ kind_str }}
+  </span>
+{% endmacro %}

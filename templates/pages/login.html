@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN" class="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ t("auth.login.title") }} · {{ t("app.name") }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&display=swap">
+  <link rel="stylesheet" href="/static/css/tokens.css" />
+  <link rel="stylesheet" href="/static/css/tailwind.css" />
+  <script src="/static/js/theme-toggle.js"></script>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-background text-foreground p-4">
+
+  <div class="w-full max-w-sm">
+    {# Brand strip #}
+    <div class="mb-6 flex items-center gap-2.5 justify-center">
+      <span class="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+        {% from "components/icon.html" import icon %}
+        {{ icon("zap", class="h-5 w-5") }}
+      </span>
+      <div class="flex flex-col leading-tight">
+        <span class="text-base font-bold tracking-tight">runwhere.ai</span>
+        <span class="text-xs text-muted-foreground">AI 训推一体平台</span>
+      </div>
+    </div>
+
+    <div class="card p-6">
+      <h1 class="text-xl font-semibold">{{ t("auth.login.title") }}</h1>
+      <p class="mt-1 text-sm text-muted-foreground">{{ t("auth.login.help") }}</p>
+
+      {% if error %}
+        <div class="banner banner-error mt-4 text-sm">
+          {{ t("auth.login.error.invalid") }}
+        </div>
+      {% endif %}
+
+      <form method="post" action="/login" class="mt-5 space-y-4">
+        <input type="hidden" name="next" value="{{ next or '/dashboard' }}" />
+        <div>
+          <label for="token" class="form-label">{{ t("auth.login.token_label") }}</label>
+          <textarea
+            id="token"
+            name="token"
+            rows="4"
+            required
+            class="form-textarea font-mono text-xs"
+            placeholder="eyJhbGciOi..."></textarea>
+          <p class="form-hint">运行 <code class="px-1 py-0.5 rounded bg-muted">kubectl create token &lt;sa&gt; --duration=24h</code> 获取</p>
+        </div>
+        <button type="submit" class="btn btn-primary w-full">{{ t("auth.login.submit") }}</button>
+      </form>
+    </div>
+
+    <p class="mt-4 text-center text-xs text-muted-foreground">
+      已设置 <code class="px-1 rounded bg-muted">RWAI_AUTH_PROVIDER=bypass</code>？登录页将自动跳转
+    </p>
+  </div>
+</body>
+</html>

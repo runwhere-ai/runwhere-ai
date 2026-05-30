@@ -1,0 +1,118 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    @apply font-sans antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Subtle focus rings (matches shadcn base-nova) */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring/50;
+  }
+}
+
+@layer components {
+  /* ── Card ───────────────────────────────────────────────────────────── */
+  .card {
+    @apply rounded-xl bg-card text-card-foreground ring-1 ring-foreground/10;
+  }
+
+  /* ── Button base ────────────────────────────────────────────────────── */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 h-9
+           text-sm font-medium transition-all
+           focus-visible:ring-2 focus-visible:ring-ring/50
+           active:translate-y-px disabled:pointer-events-none disabled:opacity-50
+           whitespace-nowrap;
+  }
+  .btn-primary    { @apply bg-primary text-primary-foreground hover:bg-primary/90; }
+  .btn-secondary  { @apply bg-secondary text-secondary-foreground hover:bg-secondary/80; }
+  .btn-outline    { @apply border border-border bg-background hover:bg-muted; }
+  .btn-ghost      { @apply hover:bg-muted hover:text-foreground; }
+  .btn-destructive{ @apply bg-destructive/10 text-destructive hover:bg-destructive/20; }
+
+  /* ── Status badge (pastel bg + saturated fg) ────────────────────────── */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-running   { @apply bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400; }
+  .badge-succeeded { @apply bg-blue-100   text-blue-700    dark:bg-blue-900/30    dark:text-blue-400; }
+  .badge-pending   { @apply bg-slate-100  text-slate-700   dark:bg-slate-900/30   dark:text-slate-400; }
+  .badge-warning   { @apply bg-amber-100  text-amber-700   dark:bg-amber-900/30   dark:text-amber-400; }
+  .badge-danger    { @apply bg-red-100    text-red-700     dark:bg-red-900/30     dark:text-red-400; }
+  .badge-neutral   { @apply bg-slate-100  text-slate-600   dark:bg-slate-900/30   dark:text-slate-400; }
+
+  /* Kind-specific badges (jobs.types in runwhere-web) */
+  .badge-kind-training  { @apply bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400; }
+  .badge-kind-inference { @apply bg-cyan-100   text-cyan-700   dark:bg-cyan-900/30   dark:text-cyan-400; }
+  .badge-kind-notebook  { @apply bg-pink-100   text-pink-700   dark:bg-pink-900/30   dark:text-pink-400; }
+  .badge-kind-compute   { @apply bg-teal-100   text-teal-700   dark:bg-teal-900/30   dark:text-teal-400; }
+
+  /* ── Skeleton (FR-110 骨架屏) ────────────────────────────────────────── */
+  .skeleton {
+    @apply bg-muted animate-pulse rounded-md;
+  }
+
+  /* ── Toast ──────────────────────────────────────────────────────────── */
+  .toast {
+    @apply fixed bottom-4 right-4 px-4 py-2 rounded-lg shadow-lg;
+  }
+  .toast-success { @apply bg-emerald-600 text-white; }
+  .toast-error   { @apply bg-destructive text-destructive-foreground; }
+  .toast-info    { @apply bg-foreground text-background; }
+
+  /* ── Connection status pill ─────────────────────────────────────────── */
+  .conn-dot       { @apply inline-block w-2 h-2 rounded-full; }
+  .conn-online    { @apply bg-emerald-500; }
+  .conn-degraded  { @apply bg-amber-500; }
+  .conn-offline   { @apply bg-red-500; }
+
+  /* ── Banner (notifications inside content area) ─────────────────────── */
+  .banner {
+    @apply px-4 py-3 border-l-4 rounded-r-md;
+  }
+  .banner-warning { @apply bg-amber-50 border-amber-400 text-amber-900 dark:bg-amber-950/30 dark:text-amber-200; }
+  .banner-info    { @apply bg-blue-50  border-blue-400  text-blue-900  dark:bg-blue-950/30  dark:text-blue-200; }
+  .banner-error   { @apply bg-red-50   border-red-400   text-red-900   dark:bg-red-950/30   dark:text-red-200; }
+
+  /* ── Sidebar nav item ───────────────────────────────────────────────── */
+  /* NOTE: `group` is a variant marker (not @apply-able); add it directly in
+     templates: <a class="nav-item group">. Same for any hover:group-* usage. */
+  .nav-item {
+    @apply flex w-full items-center gap-3 rounded-lg px-3 py-2.5
+           text-sm transition-all hover:bg-sidebar-accent/70;
+  }
+  .nav-item-active {
+    @apply bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm;
+  }
+  .nav-icon {
+    @apply flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-all
+           bg-sidebar-accent/50 text-muted-foreground
+           group-hover:bg-sidebar-accent group-hover:text-foreground;
+  }
+  .nav-icon-active {
+    @apply bg-primary text-primary-foreground shadow-sm;
+  }
+
+  /* ── Form fields ────────────────────────────────────────────────────── */
+  .form-input,
+  .form-textarea {
+    @apply block w-full rounded-lg border border-input bg-background px-3 py-2
+           text-sm placeholder:text-muted-foreground
+           focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring
+           disabled:opacity-50;
+  }
+  .form-label {
+    @apply block text-sm font-medium text-foreground mb-1.5;
+  }
+  .form-hint {
+    @apply mt-1 text-xs text-muted-foreground;
+  }
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN" class="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}{{ t("app.name") }}{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="/static/css/tokens.css" />
+  <link rel="stylesheet" href="/static/css/tailwind.css" />
+  <script src="/static/js/theme-toggle.js"></script>
+  <script defer src="/static/js/htmx.min.js"></script>
+  <script defer src="/static/js/htmx-ext-ws.min.js"></script>
+  <script defer src="/static/js/alpine.min.js"></script>
+</head>
+<body class="min-h-screen bg-background text-foreground"
+      {% block ws_subscribe %}{% endblock %}>
+
+  {# ── DEV MODE banner (RWAI_AUTH_PROVIDER=bypass) ─────────────────────── #}
+  {% if config.auth_provider == "bypass" %}
+    {% from "components/icon.html" import icon %}
+    <div class="bg-amber-400 text-amber-950 text-center text-xs py-1.5 font-medium border-b border-amber-500 flex items-center justify-center gap-1.5">
+      {{ icon("alert-triangle", class="h-3.5 w-3.5") }}
+      <span>{{ t("dev.banner.title") }} — {{ t("dev.banner.detail") }}</span>
+    </div>
+  {% endif %}
+
+  <div class="flex h-screen">
+
+    {# Sidebar (admin items gated inside the component) #}
+    {% include "components/sidebar.html" %}
+
+    {# Main area: topbar + content #}
+    <main class="flex flex-1 flex-col overflow-hidden">
+      {% include "components/topbar.html" %}
+
+      <section class="flex-1 overflow-y-auto p-6">
+        {% block content %}{% endblock %}
+      </section>
+    </main>
+  </div>
+
+  {# Toast slot — OOB swappable #}
+  <div id="toast-root"></div>
+</body>
+</html>

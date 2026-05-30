@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+{% from "components/card.html" import metric %}
+
+{% block title %}{{ t("nav.dashboard") }} · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">{{ t("nav.dashboard") }}</span>{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6">
+
+  {# Welcome strip #}
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">欢迎，{{ user.display_name or user.subject }}</h1>
+      <p class="mt-1 text-sm text-muted-foreground">
+        {% if user.namespaces %}
+          你可访问 {{ user.namespaces|length }} 个 namespace
+          {%- if user.is_admin %} · 平台管理员{% endif %}
+        {% endif %}
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="/notebooks" class="btn btn-outline">
+        {{ icon("book-open", class="h-4 w-4") }} 新建 Notebook
+      </a>
+      <a href="/trainings" class="btn btn-primary">
+        {{ icon("rocket", class="h-4 w-4") }} 新建训练
+      </a>
+    </div>
+  </div>
+
+  {# KPI tiles #}
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    {{ metric("我的任务", "6", hint="近 24h · 4 训练 / 2 推理") }}
+    {{ metric("GPU 利用率", "71%", hint="208 GPU · 已用 148") }}
+    {{ metric("失败 Top", "OOM ×3", hint="近 7 天 · 显存不足") }}
+    {{ metric("配额风险", "2", hint=">80% 的命名空间", accent="warning") }}
+  </div>
+
+  {# Two-column lower section #}
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+    {# Quick links #}
+    <div class="card p-5 lg:col-span-2">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-medium">快捷入口</h2>
+          <p class="text-sm text-muted-foreground">点开即用的四类任务</p>
+        </div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-3">
+        <a href="/notebooks" class="group rounded-lg border border-border bg-background p-4 hover:border-primary/40 hover:bg-muted/40 transition-colors">
+          <div class="flex items-center gap-3">
+            <span class="flex h-9 w-9 items-center justify-center rounded-md bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400">
+              {{ icon("book-open", class="h-4 w-4") }}
+            </span>
+            <div>
+              <div class="text-sm font-medium">Notebook</div>
+              <div class="text-xs text-muted-foreground">3 分钟开 Jupyter</div>
+            </div>
+            <span class="ml-auto text-muted-foreground group-hover:text-foreground">{{ icon("arrow-right", class="h-4 w-4") }}</span>
+          </div>
+        </a>
+        <a href="/trainings" class="group rounded-lg border border-border bg-background p-4 hover:border-primary/40 hover:bg-muted/40 transition-colors">
+          <div class="flex items-center gap-3">
+            <span class="flex h-9 w-9 items-center justify-center rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+              {{ icon("rocket", class="h-4 w-4") }}
+            </span>
+            <div>
+              <div class="text-sm font-medium">训练任务</div>
+              <div class="text-xs text-muted-foreground">表单/YAML 双模式</div>
+            </div>
+            <span class="ml-auto text-muted-foreground group-hover:text-foreground">{{ icon("arrow-right", class="h-4 w-4") }}</span>
+          </div>
+        </a>
+        <a href="/inferences" class="group rounded-lg border border-border bg-background p-4 hover:border-primary/40 hover:bg-muted/40 transition-colors">
+          <div class="flex items-center gap-3">
+            <span class="flex h-9 w-9 items-center justify-center rounded-md bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400">
+              {{ icon("zap", class="h-4 w-4") }}
+            </span>
+            <div>
+              <div class="text-sm font-medium">推理服务</div>
+              <div class="text-xs text-muted-foreground">含 Playground 调试</div>
+            </div>
+            <span class="ml-auto text-muted-foreground group-hover:text-foreground">{{ icon("arrow-right", class="h-4 w-4") }}</span>
+          </div>
+        </a>
+        <a href="/computes" class="group rounded-lg border border-border bg-background p-4 hover:border-primary/40 hover:bg-muted/40 transition-colors">
+          <div class="flex items-center gap-3">
+            <span class="flex h-9 w-9 items-center justify-center rounded-md bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
+              {{ icon("cpu", class="h-4 w-4") }}
+            </span>
+            <div>
+              <div class="text-sm font-medium">计算服务</div>
+              <div class="text-xs text-muted-foreground">通用容器作业</div>
+            </div>
+            <span class="ml-auto text-muted-foreground group-hover:text-foreground">{{ icon("arrow-right", class="h-4 w-4") }}</span>
+          </div>
+        </a>
+      </div>
+    </div>
+
+    {# Status panel #}
+    <div class="card p-5">
+      <h2 class="text-base font-medium">平台状态</h2>
+      <ul class="mt-4 space-y-3 text-sm">
+        <li class="flex items-center justify-between">
+          <span class="text-muted-foreground">实时同步</span>
+          <span class="badge badge-running"><span class="conn-dot conn-online"></span>已连接</span>
+        </li>
+        <li class="flex items-center justify-between">
+          <span class="text-muted-foreground">gpuctl API</span>
+          <span class="badge badge-running">就绪</span>
+        </li>
+        <li class="flex items-center justify-between">
+          <span class="text-muted-foreground">认证方式</span>
+          <span class="text-sm font-medium">{{ config.auth_provider }}</span>
+        </li>
+        <li class="flex items-center justify-between">
+          <span class="text-muted-foreground">角色</span>
+          <span class="text-sm font-medium">{{ "admin" if user.is_admin else "namespace_user" }}</span>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
