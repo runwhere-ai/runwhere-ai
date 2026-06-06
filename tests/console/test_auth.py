@@ -5,6 +5,7 @@ import pytest
 
 from src.console.auth import (
     BearerTokenProvider,
+    KubeConfigProvider,
     OidcProvider,
     _TokenCache,
     make_auth_provider,
@@ -156,8 +157,46 @@ class TestOidcStub:
         assert OidcProvider().login_url == "/oidc/start"
 
 
+class TestKubeConfigProvider:
+    @pytest.mark.asyncio
+    async def test_authenticate_returns_platform_admin(self):
+        p = KubeConfigProvider()
+
+        class Req:
+            cookies = {}
+            headers = {}
+
+        user = await p.authenticate(Req())
+        assert user.subject == "system:runwhere-ai"
+        assert user.display_name == "runwhere-ai"
+        assert user.namespaces == ["*"]
+        assert Role.ADMIN in user.roles
+        assert user.token is None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_caches_platform_user(self):
+        p = KubeConfigProvider()
+
+        class Req:
+            cookies = {}
+            headers = {}
+
+        first = await p.authenticate(Req())
+        second = await p.authenticate(Req())
+        assert first is second
+
+    def test_login_url_is_dashboard(self):
+        assert KubeConfigProvider().login_url == "/dashboard"
+
+
 class TestFactory:
-    def test_default_is_bearer(self, monkeypatch):
+    def test_default_is_kubeconfig(self, monkeypatch):
+        monkeypatch.setattr("src.console.auth.CONFIG",
+                            type("C", (), {"auth_provider": "kubeconfig", "token_review_cache_seconds": 60})())
+        p = make_auth_provider()
+        assert isinstance(p, KubeConfigProvider)
+
+    def test_bearer_when_configured(self, monkeypatch):
         monkeypatch.setattr("src.console.auth.CONFIG",
                             type("C", (), {"auth_provider": "bearer", "token_review_cache_seconds": 60})())
         p = make_auth_provider()

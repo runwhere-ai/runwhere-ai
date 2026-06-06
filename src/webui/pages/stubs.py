@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 
 from src.console.models import User
 from src.webui.deps import get_current_user, require_admin
@@ -35,6 +36,12 @@ def mu(text: str) -> dict:
 
 def t(title: str, sub: str | None = None) -> dict:
     return {"title": title, "sub": sub}
+
+def link(title: str, href: str, sub: str | None = None) -> dict:
+    return {"title": title, "href": href, "sub": sub}
+
+def action(label: str, href: str, icon_name: str = "arrow-right") -> dict:
+    return {"action": label, "href": href, "icon": icon_name}
 
 def bar(pct: int, label: str | None = None) -> dict:
     return {"bar": pct, "label": label}
@@ -171,8 +178,8 @@ _COMPUTES = _Page(
 _POOLS = _Page(
     path="/pools",
     label="资源池",
-    title="资源池",
-    subtitle="按机型 / 用途划池，绑定节点与命名空间。",
+    title="资源管理",
+    subtitle="资源池与节点统一管理，按机型 / 用途划池并绑定物理节点。",
     cta={"label": "新建池", "href": "/pools?new=1", "icon": "plus"},
     row_icon={"name": "database", "classes": _ICON_BLUE},
     # gpuctl pool list → POOL NAME / STATUS / GPU TOTAL / GPU USED / GPU FREE / NODE COUNT
@@ -185,10 +192,10 @@ _POOLS = _Page(
         {"label": "节点数",     "key": "count", "align": "right"},
     ],
     rows=[
-        [t("pool-h100"), b("Active", "running", "online"), "64", "48", "16", "8"],
-        [t("pool-a100"), b("Active", "running", "online"), "96", "71", "25", "12"],
-        [t("pool-l40"),  b("Active", "running", "online"), "48", "12", "36", "6"],
-        [t("pool-cpu"),  b("Active", "running", "online"), "0",  "0",  "0",  "24"],
+        [link("pool-h100", "/pools/pool-h100/nodes"), b("Active", "running", "online"), "64", "48", "16", "8"],
+        [link("pool-a100", "/pools/pool-a100/nodes"), b("Active", "running", "online"), "96", "71", "25", "12"],
+        [link("pool-l40",  "/pools/pool-l40/nodes"),  b("Active", "running", "online"), "48", "12", "36", "6"],
+        [link("pool-cpu",  "/pools/pool-cpu/nodes"),  b("Active", "running", "online"), "0",  "0",  "0",  "24"],
     ],
 )
 
@@ -259,20 +266,21 @@ _NAMESPACES = _Page(
         {"label": "名称",       "key": "name"},
         {"label": "状态",       "key": "status"},
         {"label": "创建时间",   "key": "age", "align": "right"},
+        {"label": "配额",       "key": "quota"},
     ],
     rows=[
-        [t("team-llm"),      b("Active", "running", "online"), "87d"],
-        [t("team-vision"),   b("Active", "running", "online"), "54d"],
-        [t("team-platform"), b("Active", "running", "online"), "102d"],
-        [t("team-research"), b("Active", "running", "online"), "41d"],
-        [t("team-data"),     b("Active", "running", "online"), "18d"],
-        [t("default"),       b("Active", "running", "online"), "187d"],
+        [t("team-llm"),      b("Active", "running", "online"), "87d", action("查看配额", "/namespaces/team-llm/quotas", "shield")],
+        [t("team-vision"),   b("Active", "running", "online"), "54d", action("查看配额", "/namespaces/team-vision/quotas", "shield")],
+        [t("team-platform"), b("Active", "running", "online"), "102d", action("查看配额", "/namespaces/team-platform/quotas", "shield")],
+        [t("team-research"), b("Active", "running", "online"), "41d", action("查看配额", "/namespaces/team-research/quotas", "shield")],
+        [t("team-data"),     b("Active", "running", "online"), "18d", action("查看配额", "/namespaces/team-data/quotas", "shield")],
+        [t("default"),       b("Active", "running", "online"), "187d", action("查看配额", "/namespaces/default/quotas", "shield")],
     ],
 )
 
 
 _USER_PAGES = (_NOTEBOOKS, _TRAININGS, _INFERENCES, _COMPUTES)
-_ADMIN_PAGES = (_POOLS, _NODES, _QUOTAS, _NAMESPACES)
+_ADMIN_PAGES = (_POOLS, _NAMESPACES)
 
 
 def _render(page: _Page):
@@ -314,3 +322,55 @@ for page in _USER_PAGES:
 for page in _ADMIN_PAGES:
     router.add_api_route(page.path, _admin_handler(page), methods=["GET"],
                          name=f"page_admin_{page.path.lstrip('/')}")
+
+
+def _filter_rows_by_mono_column(page: _Page, column_key: str, value: str) -> list[list[Any]]:
+    idx = next(i for i, col in enumerate(page.columns) if col["key"] == column_key)
+    return [
+        row for row in page.rows
+        if isinstance(row[idx], dict) and row[idx].get("mono") == value
+    ]
+
+
+@router.get("/pools/{pool_name}/nodes")
+async def pool_nodes(pool_name: str, request: Request, user: User = Depends(require_admin)):
+    return templates.TemplateResponse(
+        request,
+        "pages/_listing.html",
+        {
+            "user": user,
+            "page_title": f"{pool_name} · 节点",
+            "page_subtitle": "该资源池下的物理节点状态、GPU 利用率与标签管理。",
+            "primary_cta": None,
+            "row_icon": _NODES.row_icon,
+            "columns": _NODES.columns,
+            "rows": _filter_rows_by_mono_column(_NODES, "pool", pool_name),
+        },
+    )
+
+
+@router.get("/namespaces/{namespace}/quotas")
+async def namespace_quotas(namespace: str, request: Request, user: User = Depends(require_admin)):
+    return templates.TemplateResponse(
+        request,
+        "pages/_listing.html",
+        {
+            "user": user,
+            "page_title": f"{namespace} · 配额",
+            "page_subtitle": "该命名空间的 GPU / 内存 / Pod 用量与上限。",
+            "primary_cta": None,
+            "row_icon": _QUOTAS.row_icon,
+            "columns": _QUOTAS.columns,
+            "rows": _filter_rows_by_mono_column(_QUOTAS, "namespace", namespace),
+        },
+    )
+
+
+@router.get("/nodes", include_in_schema=False)
+async def nodes_redirect():
+    return RedirectResponse("/pools", status_code=302)
+
+
+@router.get("/quotas", include_in_schema=False)
+async def quotas_redirect():
+    return RedirectResponse("/namespaces", status_code=302)

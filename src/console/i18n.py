@@ -29,10 +29,11 @@ _ZH_CN: Final[dict[str, str]] = {
     "nav.computes":                "计算服务",
     "nav.computes.list":           "服务列表",
     "nav.computes.new":            "新建计算服务",
-    "nav.pools":                   "资源池",
+    "nav.pools":                   "资源管理",
     "nav.nodes":                   "节点",
     "nav.quotas":                  "配额",
     "nav.namespaces":              "命名空间",
+    "nav.cluster_config":          "集群配置",
     "nav.account":                 "我的信息",
     "nav.logout":                  "退出登录",
 

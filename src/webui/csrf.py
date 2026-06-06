@@ -3,6 +3,7 @@
 For mutating requests (POST/PUT/PATCH/DELETE) the client must echo the
 ``csrf`` cookie value in the ``X-CSRF-Token`` header. We exclude:
   - safe methods (GET, HEAD, OPTIONS)
+  - sessionless platform modes (kubeconfig / bypass)
   - the /login POST itself (no session yet)
   - the /logout POST (uses cookie evict, no body)
   - WS upgrade requests (auth checked at handshake)
@@ -28,8 +29,8 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method in _SAFE:
             return await call_next(request)
-        # Dev bypass mode skips CSRF entirely — there's no real session anyway.
-        if CONFIG.auth_provider == "bypass":
+        # Sessionless modes skip CSRF: there is no browser-held auth secret.
+        if CONFIG.auth_provider in {"kubeconfig", "bypass"}:
             return await call_next(request)
         path = request.url.path
         if path in _BYPASS_PATHS or path.startswith("/_events") or path.startswith("/static"):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+import os
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -17,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src import __version__
 from src.config import CONFIG
+from gpuctl.kube_config import load_gpuctl_config
 
 logger = logging.getLogger("src")
 logging.basicConfig(
@@ -97,11 +99,15 @@ def create_app() -> FastAPI:
 
     @app.get("/_meta")
     async def meta() -> JSONResponse:
+        gpuctl_config = load_gpuctl_config()
         return JSONResponse(
             {
                 "name": "runwhere-ai",
                 "version": __version__,
                 "auth_provider": CONFIG.auth_provider,
+                "k8s_config_source": "incluster" if os.getenv("KUBERNETES_SERVICE_HOST") else "kubeconfig",
+                "kubeconfig": gpuctl_config.kubeconfig or os.getenv("KUBECONFIG") or None,
+                "kube_context": gpuctl_config.context,
             }
         )
 

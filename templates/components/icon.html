@@ -36,7 +36,8 @@
   "chevron-left":     '<path d="m15 18-6-6 6-6"/>',
   "chevron-right":    '<path d="m9 18 6-6-6-6"/>',
   "search":           '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
-  "plus":             '<path d="M5 12h14"/><path d="M12 5v14"/>'
+  "plus":             '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  "settings":         '<path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.32-1.915Z"/><circle cx="12" cy="12" r="3"/>'
 } -%}
 {%- set svg = body.get(name, '') -%}
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="{{ class }}">{{ svg | safe }}</svg>

@@ -63,7 +63,33 @@ poetry run playwright install chromium
 make dev
 ```
 
-打开 http://localhost:8000 → 进入登录页（用 gpuctl Bearer Token 登录）。
+打开 http://localhost:8000 → 直接进入控制台。默认 `RWAI_AUTH_PROVIDER=kubeconfig`：
+
+- 本地开发：读取当前 `KUBECONFIG` / `~/.kube/config`
+- 集群部署：读取 Pod 的 in-cluster ServiceAccount
+- 浏览器侧：不需要登录，不需要粘贴 token
+
+K8s 配置读取规则与 `gpuctl` CLI 保持一致：
+
+- 进程环境里有 `KUBERNETES_SERVICE_HOST`：读取 in-cluster ServiceAccount
+- 否则读取 Kubernetes 标准 kubeconfig：`KUBECONFIG` 或 `~/.kube/config`
+
+如果自动读取不符合预期，请通过 `gpuctl` 配置入口设置，这样 CLI 和 UI 才会同步：
+
+```bash
+gpuctl config set-kubeconfig --file /path/to/admin.conf --context prod
+make dev
+```
+
+也可以查看或清除配置：
+
+```bash
+gpuctl config view
+gpuctl config unset-kubeconfig
+```
+
+如需兼容按 Kubernetes Bearer Token 登录的旧模式，可设置
+`RWAI_AUTH_PROVIDER=bearer` 后重启服务。
 
 ## 测试
 

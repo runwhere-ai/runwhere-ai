@@ -19,28 +19,25 @@ async def test_meta_returns_provider(client):
     assert r.status_code == 200
     body = r.json()
     assert body["name"] == "runwhere-ai"
-    assert body["auth_provider"] in {"bearer", "oidc"}
+    assert body["auth_provider"] in {"kubeconfig", "bearer", "oidc", "bypass"}
 
 
 @pytest.mark.asyncio
-async def test_unauthed_dashboard_redirects_to_login(client):
-    # Browsers send Accept: text/html — middleware should redirect.
+async def test_default_dashboard_opens_without_login(client):
     r = await client.get("/dashboard", headers={"Accept": "text/html"},
-                          follow_redirects=False)
-    assert r.status_code in (302, 401)
-    if r.status_code == 302:
-        assert "/login" in r.headers.get("location", "")
+                         follow_redirects=False)
+    assert r.status_code == 200
+    assert "text/html" in r.headers.get("content-type", "")
 
 
 @pytest.mark.asyncio
-async def test_unauthed_htmx_dashboard_gets_hx_redirect(client):
+async def test_default_htmx_dashboard_opens_without_login(client):
     r = await client.get(
         "/dashboard",
         headers={"HX-Request": "true", "Accept": "text/html"},
         follow_redirects=False,
     )
-    assert r.status_code == 401
-    assert "/login" in r.headers.get("hx-redirect", "")
+    assert r.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -51,12 +48,7 @@ async def test_root_redirects_to_dashboard(client):
 
 
 @pytest.mark.asyncio
-async def test_login_page_renders(client):
+async def test_login_redirects_in_kubeconfig_mode(client):
     r = await client.get("/login")
-    assert r.status_code == 200
-    assert "text/html" in r.headers.get("content-type", "")
-    body = r.text
-    # Title + form must be present
-    assert "登录" in body
-    assert "<form" in body
-    assert 'name="token"' in body
+    assert r.status_code == 302
+    assert r.headers["location"] == "/dashboard"

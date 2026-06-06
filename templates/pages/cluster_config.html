@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}{{ t("nav.cluster_config") }} · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">{{ t("nav.cluster_config") }}</span>{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-4xl space-y-6">
+
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold tracking-tight">集群配置</h1>
+      <p class="mt-1 text-sm text-muted-foreground">配置 gpuctl 共享 kubeconfig，CLI 与 UI 会读取同一份状态。</p>
+    </div>
+  </div>
+
+  {% if request.query_params.get("message") == "saved" or message == "saved" %}
+    <div class="banner banner-success text-sm">已保存 kubeconfig 配置。</div>
+  {% elif request.query_params.get("message") == "cleared" or message == "cleared" %}
+    <div class="banner banner-success text-sm">已清除 gpuctl kubeconfig 配置，将回退到标准 KUBECONFIG / ~/.kube/config。</div>
+  {% endif %}
+
+  {% if error %}
+    <div class="banner banner-error text-sm">{{ error }}</div>
+  {% endif %}
+
+  <div class="grid gap-4 lg:grid-cols-[1fr_22rem]">
+    <div class="card p-5">
+      <div class="flex items-center gap-2">
+        <span class="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+          {{ icon("settings", class="h-4 w-4") }}
+        </span>
+        <div>
+          <h2 class="text-base font-medium">gpuctl kubeconfig</h2>
+          <p class="text-sm text-muted-foreground">路径必须是 runwhere-ai 服务端机器可访问的文件。</p>
+        </div>
+      </div>
+
+      <form method="post" action="/cluster-config" class="mt-5 space-y-4">
+        <div>
+          <label for="kubeconfig" class="form-label">kubeconfig 文件路径</label>
+          <input
+            id="kubeconfig"
+            name="kubeconfig"
+            type="text"
+            required
+            value="{{ settings.kubeconfig or '' }}"
+            placeholder="/Users/me/.kube/config"
+            class="form-input font-mono text-sm" />
+        </div>
+        <div>
+          <label for="context" class="form-label">context</label>
+          <input
+            id="context"
+            name="context"
+            type="text"
+            value="{{ settings.context or '' }}"
+            placeholder="留空使用 current-context"
+            class="form-input font-mono text-sm" />
+        </div>
+        <div class="flex items-center gap-2 pt-1">
+          <button type="submit" class="btn btn-primary">{{ icon("check", class="h-4 w-4") }} 保存</button>
+        </div>
+      </form>
+
+      <form method="post" action="/cluster-config/clear" class="mt-3">
+        <button type="submit" class="btn btn-outline">{{ icon("trash", class="h-4 w-4") }} 清除配置</button>
+      </form>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="text-base font-medium">当前生效</h2>
+      <dl class="mt-4 space-y-3 text-sm">
+        <div>
+          <dt class="text-muted-foreground">来源</dt>
+          <dd class="mt-1 font-medium">{{ source }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">kubeconfig</dt>
+          <dd class="mt-1 break-all font-mono text-xs">{{ effective_kubeconfig }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">context</dt>
+          <dd class="mt-1 break-all font-mono text-xs">{{ effective_context }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">gpuctl 配置文件</dt>
+          <dd class="mt-1 break-all font-mono text-xs">{{ config_path }}</dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -65,9 +65,8 @@
       </div>
       <ul class="space-y-0.5">
         {{ nav_item("/pools",      t("nav.pools"),      "database") }}
-        {{ nav_item("/nodes",      t("nav.nodes"),      "server") }}
-        {{ nav_item("/quotas",     t("nav.quotas"),     "shield") }}
         {{ nav_item("/namespaces", t("nav.namespaces"), "folder") }}
+        {{ nav_item("/cluster-config", t("nav.cluster_config"), "settings") }}
       </ul>
     {% endif %}
   </div>
@@ -81,7 +80,9 @@
       </span>
       <span class="flex min-w-0 flex-col text-left leading-tight">
         <span class="truncate text-sm font-medium">{{ user.display_name or user.subject }}</span>
-        {% if user.namespaces %}
+        {% if "*" in user.namespaces %}
+          <span class="truncate text-xs text-muted-foreground">全部 namespace</span>
+        {% elif user.namespaces %}
           <span class="truncate text-xs text-muted-foreground">{{ user.namespaces[0] }}{% if user.namespaces|length > 1 %} +{{ user.namespaces|length - 1 }}{% endif %}</span>
         {% endif %}
       </span>

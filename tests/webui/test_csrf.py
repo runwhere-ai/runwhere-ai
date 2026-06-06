@@ -19,10 +19,22 @@ async def test_login_post_bypasses_csrf(client):
 
 
 @pytest.mark.asyncio
-async def test_mismatched_csrf_token_rejected(client):
-    # Hit a non-bypass POST without matching tokens.
-    # /logout is in BYPASS, so use a fake protected path; the route will 404
-    # *after* CSRF passes, or 403 *before*. We test the CSRF block.
+async def test_kubeconfig_mode_skips_csrf(client):
+    # Kubeconfig mode has no browser-held auth secret, so CSRF is skipped.
+    r = await client.post(
+        "/dashboard",
+        cookies={"csrf": "good"},
+        headers={"X-CSRF-Token": "bad"},
+    )
+    assert r.status_code == 405
+
+
+@pytest.mark.asyncio
+async def test_mismatched_csrf_token_rejected_in_bearer_mode(client, monkeypatch):
+    monkeypatch.setattr(
+        "src.webui.csrf.CONFIG",
+        type("C", (), {"auth_provider": "bearer", "csrf_cookie_name": "csrf"})(),
+    )
     r = await client.post(
         "/dashboard",
         cookies={"csrf": "good"},

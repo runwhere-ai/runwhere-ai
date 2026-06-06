@@ -1,10 +1,11 @@
-"""AuthProvider abstraction + v1 BearerTokenProvider.
+"""AuthProvider abstraction + platform / bearer providers.
 
 Spec FR-001, FR-002, FR-003, FR-004 + clarify Q1.
 
-v1 ships BearerTokenProvider only. OidcProvider is a stub that raises
-NotImplementedError to lock the extension point — the surface stays
-stable so wiring the OIDC implementation in v2 won't disturb call sites.
+Default mode is KubeConfigProvider: the browser has no login ceremony and
+the server uses in-cluster config or the operator's kubeconfig as the single
+Kubernetes identity. BearerTokenProvider remains available for deployments
+that want per-request K8s token validation.
 """
 from __future__ import annotations
 
@@ -133,15 +134,14 @@ class BearerTokenProvider:
         # Import locally so test code can stub kubernetes_asyncio without
         # making it a hard runtime prerequisite at module load.
         try:
-            from kubernetes_asyncio import client, config as k8s_config  # type: ignore
+            from kubernetes_asyncio import client  # type: ignore
         except Exception as exc:  # pragma: no cover - environment-dependent
             raise AuthError(f"kubernetes_asyncio not available: {exc}") from exc
 
         try:
-            try:
-                k8s_config.load_incluster_config()
-            except Exception:
-                await k8s_config.load_kube_config()
+            from src.console.k8s_config import load_k8s_config
+
+            await load_k8s_config()
         except Exception as exc:
             raise AuthError(f"k8s config not loadable: {exc}") from exc
 
@@ -302,6 +302,55 @@ class OidcProvider:
         raise NotImplementedError("OIDC reserved for v2")
 
 
+# ─── Platform console · kubeconfig / in-cluster identity ──────────────────────
+
+class KubeConfigProvider:
+    """Platform-console auth: no browser login, server-side K8s identity.
+
+    This is the intended default for runwhere-ai when it is deployed as an
+    internal platform console. The browser opens the UI directly; K8s access is
+    performed by downstream service/API clients using either in-cluster
+    ServiceAccount credentials or the operator's local kubeconfig.
+    """
+
+    kind = "kubeconfig"
+
+    def __init__(self) -> None:
+        self._user: Optional[User] = None
+        self._lock = asyncio.Lock()
+
+    @property
+    def login_url(self) -> str:
+        return "/dashboard"
+
+    async def authenticate(self, request: Request) -> User:
+        if self._user is not None:
+            return self._user
+        async with self._lock:
+            if self._user is None:
+                self._user = await self._build_user()
+        return self._user
+
+    async def _build_user(self) -> User:
+        return User(
+            subject="system:runwhere-ai",
+            display_name="runwhere-ai",
+            namespaces=["*"],
+            roles=[Role.ADMIN, Role.NAMESPACE_USER],
+            token=None,
+        )
+
+    async def begin_login(self, request: Request) -> Response:
+        next_url = request.query_params.get("next", "/dashboard")
+        return RedirectResponse(next_url, status_code=302)
+
+    async def complete_login(self, request: Request) -> Response:
+        return RedirectResponse("/dashboard", status_code=302)
+
+    async def logout(self, request: Request) -> Response:
+        return RedirectResponse("/dashboard", status_code=302)
+
+
 # ─── DEV ONLY · auth bypass ───────────────────────────────────────────────────
 
 class DevBypassProvider:
@@ -351,6 +400,8 @@ class DevBypassProvider:
 # ─── factory ──────────────────────────────────────────────────────────────────
 
 def make_auth_provider() -> AuthProvider:
+    if CONFIG.auth_provider == "kubeconfig":
+        return KubeConfigProvider()
     if CONFIG.auth_provider == "bypass":
         return DevBypassProvider()
     if CONFIG.auth_provider == "oidc":

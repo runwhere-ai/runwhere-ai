@@ -32,9 +32,11 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Config:
     # ── Authentication (FR-001 + clarify Q1) ─────────────────────────────────
-    # "bypass" = DEV ONLY: fake admin user, no K8s TokenReview. Never use in prod.
-    auth_provider: Literal["bearer", "oidc", "bypass"] = field(
-        default_factory=lambda: os.getenv("RWAI_AUTH_PROVIDER", "bearer")
+    # "kubeconfig" = platform-console mode: no browser login; the server uses
+    # in-cluster config or the operator's kubeconfig to access all resources.
+    # "bypass" = DEV ONLY: fake admin user, no K8s client setup.
+    auth_provider: Literal["kubeconfig", "bearer", "oidc", "bypass"] = field(
+        default_factory=lambda: os.getenv("RWAI_AUTH_PROVIDER", "kubeconfig")
     )
     session_cookie_name: str = "rw_token"
     csrf_cookie_name: str = "csrf"
