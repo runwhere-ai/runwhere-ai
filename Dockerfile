@@ -41,14 +41,24 @@ RUN pip install \
 COPY runwhere-ai/ /app/runwhere-ai/
 WORKDIR /app/runwhere-ai
 
-# ── 4) 构建 Tailwind CSS ───────────────────────────────────────────────────────
-# 用 Python 从 github releases 拉取 Tailwind Standalone CLI（linux-x64），
-# 扫描 templates/ 编译出 static/css/tailwind.css，随后删除二进制以减小镜像。
-RUN mkdir -p tools \
-    && python -c "import urllib.request; urllib.request.urlretrieve('https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.13/tailwindcss-linux-x64','tools/tailwindcss')" \
-    && chmod +x tools/tailwindcss \
-    && ./tools/tailwindcss -i static/css/runwhere.in.css -o static/css/tailwind.css --minify \
-    && rm -f tools/tailwindcss
+# ── 4) Tailwind CSS ────────────────────────────────────────────────────────────
+# tailwind.css 是生成物（被 .gitignore，不入 git）。两种来源：
+#   a) 构建上下文里已存在预构建的 static/css/tailwind.css → 直接用（受限网络推荐）；
+#   b) 否则从 github releases 拉取 Tailwind Standalone CLI（linux-x64，带重试）现编。
+RUN set -e; \
+    if [ -s static/css/tailwind.css ]; then \
+      echo "✓ 使用上下文中已存在的 tailwind.css"; \
+    else \
+      echo "… 下载 Tailwind CLI 现场编译"; \
+      mkdir -p tools; \
+      for i in 1 2 3 4 5; do \
+        python -c "import urllib.request; urllib.request.urlretrieve('https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.13/tailwindcss-linux-x64','tools/tailwindcss')" && break \
+          || { echo "下载失败，重试 $i/5…"; sleep 6; }; \
+      done; \
+      chmod +x tools/tailwindcss; \
+      ./tools/tailwindcss -i static/css/runwhere.in.css -o static/css/tailwind.css --minify; \
+      rm -f tools/tailwindcss; \
+    fi
 
 # 让 `import src.*` 可解析；static/templates 由 main.py 基于该目录定位。
 ENV PYTHONPATH=/app/runwhere-ai
