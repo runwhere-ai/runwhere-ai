@@ -32,12 +32,23 @@ RUN pip install \
         "python-multipart>=0.0.6" \
         "kubernetes-asyncio>=29.0.0"
 
-# ── 3) 应用源码（含预构建的 static/css/tailwind.css）────────────────────────────
+# ── 3) 应用源码 ───────────────────────────────────────────────────────────────
+# vendored JS（htmx / alpine）已随 git 提交；仅生成的 tailwind.css 未入库。
 COPY runwhere-ai/ /app/runwhere-ai/
+WORKDIR /app/runwhere-ai
+
+# ── 4) 构建 Tailwind CSS ───────────────────────────────────────────────────────
+# 下载 Tailwind Standalone CLI（linux-x64，脚本按平台自动选择）并编译，
+# 扫描 templates/ 生成 static/css/tailwind.css。需要 curl 拉取二进制。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && bash scripts/install-tailwind.sh \
+    && ./tools/tailwindcss -i static/css/runwhere.in.css -o static/css/tailwind.css --minify \
+    && rm -f tools/tailwindcss
 
 # 让 `import src.*` 可解析；static/templates 由 main.py 基于该目录定位。
 ENV PYTHONPATH=/app/runwhere-ai
-WORKDIR /app/runwhere-ai
 
 EXPOSE 8000
 
