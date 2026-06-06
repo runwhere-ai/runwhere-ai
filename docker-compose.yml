@@ -1,0 +1,35 @@
+# runwhere-ai 控制台 —— Docker Compose 部署。
+#
+# 用法（在 runwhere-ai/ 目录下）：
+#   docker compose up -d --build      # 构建并后台启动
+#   docker compose logs -f            # 看日志
+#   docker compose down               # 停止
+#
+# 前置条件：父目录同级存在 gpuctl/（path 依赖），宿主机有 ~/.kube/config 指向集群。
+
+services:
+  runwhere-ai:
+    build:
+      # 上下文设为父目录，使镜像能同时拿到 runwhere-ai/ 与 gpuctl/。
+      context: ..
+      dockerfile: runwhere-ai/Dockerfile
+    image: runwhere-ai:latest
+    container_name: runwhere-ai
+
+    # host 网络：① 直接暴露 :8000；② 容器内可访问 k3s 的 127.0.0.1:6443。
+    network_mode: host
+
+    environment:
+      # 平台控制台模式：服务端用 kubeconfig 访问全部资源，浏览器无需登录。
+      RWAI_AUTH_PROVIDER: kubeconfig
+      # 通过 http 在局域网访问，关闭 cookie 的 Secure 标志。
+      RWAI_COOKIE_SECURE: "false"
+      RWAI_PORT: "8000"
+      RWAI_LOG_LEVEL: INFO
+      KUBECONFIG: /root/.kube/config
+
+    volumes:
+      # 只读挂载宿主机 kubeconfig（k3s 默认 server 为 127.0.0.1:6443，配合 host 网络可达）。
+      - ${HOME}/.kube/config:/root/.kube/config:ro
+
+    restart: unless-stopped

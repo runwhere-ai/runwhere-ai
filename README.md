@@ -91,6 +91,35 @@ gpuctl config unset-kubeconfig
 如需兼容按 Kubernetes Bearer Token 登录的旧模式，可设置
 `RWAI_AUTH_PROVIDER=bearer` 后重启服务。
 
+## Docker 部署
+
+容器化部署同样依赖同级的 `gpuctl/`，因此**构建上下文是父目录**。已在 `docker-compose.yml` 中配好，直接用即可：
+
+```bash
+# 在 runwhere-ai/ 目录下
+docker compose up -d --build      # 构建镜像并后台启动
+docker compose logs -f            # 跟踪日志
+docker compose down               # 停止并移除容器
+```
+
+打开 http://<宿主机IP>:8000 即进入控制台。要点：
+
+- **网络**：使用 `network_mode: host`，既直接暴露 `:8000`，又让容器内能访问 k3s 的 `127.0.0.1:6443`。
+- **集群凭据**：只读挂载宿主机 `~/.kube/config` 到容器 `/root/.kube/config`，并设 `KUBECONFIG` 指向它。
+- **认证**：`RWAI_AUTH_PROVIDER=kubeconfig`（平台控制台模式，浏览器无需登录）；经 http 访问时 `RWAI_COOKIE_SECURE=false`。
+- 预构建的 `static/css/tailwind.css` 已随源码进镜像，**容器内无需再编译 Tailwind**。
+
+不用 compose 直接构建：
+
+```bash
+docker build -f runwhere-ai/Dockerfile -t runwhere-ai:latest ..      # 注意结尾的 ..
+docker run -d --name runwhere-ai --network host \
+  -e RWAI_AUTH_PROVIDER=kubeconfig -e RWAI_COOKIE_SECURE=false \
+  -e KUBECONFIG=/root/.kube/config \
+  -v "$HOME/.kube/config:/root/.kube/config:ro" \
+  runwhere-ai:latest
+```
+
 ## 测试
 
 ```bash

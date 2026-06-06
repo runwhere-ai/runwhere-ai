@@ -1,0 +1,27 @@
+# BuildKit 会优先使用与 Dockerfile 同名的 <Dockerfile>.dockerignore。
+# 注意：路径相对于 *构建上下文根目录*（父目录 runwhere-org/），故需带子目录前缀。
+
+# 虚拟环境 / 缓存（体积大且与镜像无关）
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/htmlcov
+
+# 版本控制与本地工具
+**/.git
+**/.gitignore
+**/.DS_Store
+**/.idea
+**/.vscode
+
+# 构建产物（gpuctl 的 wheel 等，镜像内重新安装）
+gpuctl/dist
+gpuctl/docs
+
+# 测试与文档（运行期不需要）
+runwhere-ai/tests
+runwhere-ai/.github
