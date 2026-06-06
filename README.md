@@ -120,6 +120,31 @@ docker run -d --name runwhere-ai --network host \
   runwhere-ai:latest
 ```
 
+## 部署进 Kubernetes（k3s）
+
+把控制台作为 Pod 跑在集群内，用 ServiceAccount（in-cluster 配置）直接访问 K8s API ——
+这是 k8s 控制台的推荐部署方式，无需挂载 kubeconfig，也绕开 Docker Desktop 与宿主 k8s
+的网络隔离问题。清单在 `deploy/k8s/runwhere-ai.yaml`（命名空间 `runwhere-apps`、
+镜像 `runwhere/ai:dev`、NodePort `30808`、绑定 cluster-admin）。
+
+```bash
+# 1) 构建镜像
+docker compose build
+
+# 2) 导入 k3s 的 containerd（k3s 镜像库独立于 docker；imagePullPolicy: Never）
+./deploy/k8s/load-image.sh
+
+# 3) 部署
+kubectl apply -f deploy/k8s/runwhere-ai.yaml
+kubectl -n runwhere-apps rollout status deploy/runwhere-ai
+
+# 访问
+#   http://<节点IP>:30808
+```
+
+> 平台控制台模式（`RWAI_AUTH_PROVIDER=kubeconfig`）：Pod 内 `KUBERNETES_SERVICE_HOST`
+> 存在时 gpuctl 自动调用 `load_incluster_config()`，凭 ServiceAccount 访问集群。
+
 ## 测试
 
 ```bash

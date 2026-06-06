@@ -1,0 +1,97 @@
+# runwhere-ai 控制台 —— 部署进 k3s 集群。
+#
+# 镜像通过 `deploy/k8s/load-image.sh` 导入 k3s 的 containerd（imagePullPolicy: Never）。
+# 应用：
+#   kubectl apply -f deploy/k8s/runwhere-ai.yaml
+# 访问：http://<节点IP>:30808
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: runwhere-ai
+  namespace: runwhere-apps
+---
+# 控制台为平台管理员视图，需跨命名空间读写 K8s 资源（namespaces / nodes / jobs / pods /
+# quotas / labels 等），故绑定到内置 cluster-admin。如需收紧，可改为自定义最小权限 ClusterRole。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: runwhere-ai
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: runwhere-ai
+    namespace: runwhere-apps
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runwhere-ai
+  namespace: runwhere-apps
+  labels:
+    app: runwhere-ai
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: runwhere-ai
+  template:
+    metadata:
+      labels:
+        app: runwhere-ai
+    spec:
+      serviceAccountName: runwhere-ai
+      containers:
+        - name: runwhere-ai
+          image: runwhere/ai:dev
+          imagePullPolicy: Never        # 镜像由本地 containerd 导入，不从 registry 拉取
+          ports:
+            - containerPort: 8000
+          env:
+            # Pod 内 KUBERNETES_SERVICE_HOST 必然存在 → gpuctl 自动走 in-cluster 配置，
+            # 使用本 ServiceAccount 访问 K8s API，无需挂载 kubeconfig。
+            - name: RWAI_AUTH_PROVIDER
+              value: kubeconfig
+            - name: RWAI_COOKIE_SECURE
+              value: "false"           # 经 NodePort 以 http 访问
+            - name: RWAI_LOG_LEVEL
+              value: INFO
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: runwhere-ai
+  namespace: runwhere-apps
+  labels:
+    app: runwhere-ai
+spec:
+  type: NodePort
+  selector:
+    app: runwhere-ai
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      nodePort: 30808
