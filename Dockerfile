@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-#
 # runwhere-ai 一体化控制台镜像。
 #
 # 重要：构建上下文必须是 *父目录*（包含 runwhere-ai/ 与 gpuctl/ 两个子目录），
@@ -9,11 +7,17 @@
 #   docker build -f runwhere-ai/Dockerfile -t runwhere-ai:latest ..
 #
 # 或直接用 runwhere-ai/docker-compose.yml（已把 context 设为 `..`）。
-FROM python:3.12-slim
+#
+# 注：未使用 `# syntax=` 前端指令，避免离线/受限网络下拉取 docker.io frontend；
+# 基础镜像用 3.11-slim（目标机已缓存），项目要求 Python >=3.10。
+FROM python:3.11-slim
 
+# pip 走可达的镜像源（受限网络下 pypi.org 不可达）。
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+    PIP_TRUSTED_HOST=mirrors.aliyun.com
 
 WORKDIR /app
 
@@ -38,12 +42,11 @@ COPY runwhere-ai/ /app/runwhere-ai/
 WORKDIR /app/runwhere-ai
 
 # ── 4) 构建 Tailwind CSS ───────────────────────────────────────────────────────
-# 下载 Tailwind Standalone CLI（linux-x64，脚本按平台自动选择）并编译，
-# 扫描 templates/ 生成 static/css/tailwind.css。需要 curl 拉取二进制。
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && bash scripts/install-tailwind.sh \
+# 用 Python 从 github releases 拉取 Tailwind Standalone CLI（linux-x64），
+# 扫描 templates/ 编译出 static/css/tailwind.css，随后删除二进制以减小镜像。
+RUN mkdir -p tools \
+    && python -c "import urllib.request; urllib.request.urlretrieve('https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.13/tailwindcss-linux-x64','tools/tailwindcss')" \
+    && chmod +x tools/tailwindcss \
     && ./tools/tailwindcss -i static/css/runwhere.in.css -o static/css/tailwind.css --minify \
     && rm -f tools/tailwindcss
 
