@@ -37,3 +37,4 @@ playwright-report/
 # Secrets / env
 .env
 .env.local
+.gstack/
