@@ -19,6 +19,7 @@ build/
 # Tailwind binary (download via scripts/install-tailwind.sh)
 tools/tailwindcss
 tools/tailwindcss-*
+tools/tailwindcss.exe
 
 # Generated CSS (rebuild via `make tailwind`)
 static/css/tailwind.css
@@ -38,3 +39,8 @@ playwright-report/
 .env
 .env.local
 .gstack/
+
+# 本地连远端 k3s 的私有产物（含客户端私钥 + 机器相关脚本，勿提交）
+.kube-runw.yaml
+tools/k3s_proxy.py
+scripts/run-local.ps1
