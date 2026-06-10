@@ -1,0 +1,5 @@
+{%- if logs -%}
+{{ logs | join("\n") }}
+{%- else -%}
+（暂无日志）
+{%- endif -%}

@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block title %}{{ name }} · {{ kind_label }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{{ list_url }}" class="text-muted-foreground hover:text-foreground">{{ kind_label }}</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <span class="text-foreground font-medium">{{ name }}</span>
+{% endblock %}
+
+{% macro stat(label, value) %}
+  <div class="min-w-0">
+    <div class="text-xs text-muted-foreground mb-1">{{ label }}</div>
+    <div class="text-sm font-medium font-mono break-all">{{ value if (value not in (none, '', 'None')) else '—' }}</div>
+  </div>
+{% endmacro %}
+
+{% macro copybtn(value) %}
+  <button type="button" class="btn btn-outline h-8 px-2.5 text-xs shrink-0"
+          x-data="{c:false}" data-copy="{{ value }}"
+          @click="rwCopy($el.dataset.copy); c = true; setTimeout(() => c = false, 1200)">
+    <span x-text="c ? '已复制' : '复制'">复制</span>
+  </button>
+{% endmacro %}
+
+{% macro field(label, value, mono=true) %}
+  <div class="flex items-start gap-3 py-2 border-b border-border/40 last:border-0">
+    <span class="text-muted-foreground text-sm w-20 shrink-0">{{ label }}</span>
+    <span class="{% if mono %}font-mono text-xs{% else %}text-sm{% endif %} break-all flex-1">{{ value if (value not in (none, '', 'None')) else '—' }}</span>
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-5">
+
+  {% if not_found %}
+    <div class="card p-12 text-center text-muted-foreground">
+      未找到任务 <span class="font-mono text-foreground">{{ name }}</span>（命名空间 {{ namespace }}）。它可能已被删除或尚未就绪。
+      <div class="mt-4"><a href="{{ list_url }}" class="btn btn-outline">返回列表</a></div>
+    </div>
+  {% else %}
+
+  {# Header #}
+  <div class="flex items-center justify-between gap-3 flex-wrap">
+    <div class="flex items-center gap-3 min-w-0">
+      <a href="{{ list_url }}" class="btn btn-outline h-9 px-3">← 返回</a>
+      <h1 class="text-2xl font-semibold tracking-tight truncate">{{ name }}</h1>
+      <span class="badge badge-kind-{{ kind }}">{{ kind_label }}</span>
+      <span class="badge badge-{{ status_tone }}">{{ status }}</span>
+    </div>
+    {% if access and access.public_url %}
+      <a href="{{ access.public_url }}" target="_blank" rel="noopener"
+         class="btn btn-primary h-9 px-4 shrink-0">打开访问页面 ↗</a>
+    {% endif %}
+  </div>
+
+  {# 概览：单张卡 + 多列 stat 网格（不再有挤成一条的窄卡） #}
+  <div class="card p-6">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-6">
+      <div class="min-w-0">
+        <div class="text-xs text-muted-foreground mb-1">状态</div>
+        <span class="badge badge-{{ status_tone }}">{{ status }}</span>
+      </div>
+      {{ stat("命名空间", namespace) }}
+      {{ stat("运行时长", age) }}
+      {{ stat("资源类型", resource_type) }}
+      {{ stat("GPU", resources.gpu) }}
+      {{ stat("CPU", resources.cpu) }}
+      {{ stat("内存", resources.memory) }}
+      {{ stat("资源池", pool) }}
+      {{ stat("优先级", priority) }}
+    </div>
+  </div>
+
+  {# 镜像 & 命令 #}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-4">镜像 & 启动命令</h2>
+    {{ field("镜像", image) }}
+    <div class="pt-4">
+      <div class="text-muted-foreground text-sm mb-2">启动命令</div>
+      <pre class="font-mono text-xs leading-relaxed bg-muted/50 rounded-lg p-4 overflow-x-auto whitespace-pre">{{ command or "—" }}</pre>
+    </div>
+  </div>
+
+  {# 访问方式（有 NodePort 服务时） #}
+  {% if access %}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-4">访问方式</h2>
+    <div class="space-y-4 text-sm">
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-muted-foreground text-xs mb-1">对外地址（Tailscale）</div>
+          <a href="{{ access.public_url }}" target="_blank" rel="noopener"
+             class="font-mono text-xs text-primary hover:underline break-all">{{ access.public_url }}</a>
+        </div>
+        {{ copybtn(access.public_url) }}
+      </div>
+      {% if access.cluster_url %}
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-muted-foreground text-xs mb-1">集群内地址（节点内网 IP）</div>
+          <span class="font-mono text-xs break-all">{{ access.cluster_url }}</span>
+        </div>
+        {{ copybtn(access.cluster_url) }}
+      </div>
+      {% endif %}
+      {% if kind == "notebook" %}
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-muted-foreground text-xs mb-1">Token</div>
+          <span class="font-mono text-xs break-all">{{ access.token or "（启动命令未设置 token，按 Jupyter 默认处理）" }}</span>
+        </div>
+        {% if access.token %}{{ copybtn(access.token) }}{% endif %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {# SSH / 进入容器 #}
+  {% if ssh_cmd %}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-2">SSH / 进入容器</h2>
+    <p class="text-xs text-muted-foreground mb-3">容器未内置 sshd；用下面的命令直接进入容器 shell（等价 SSH）。</p>
+    <div class="flex items-center gap-4">
+      <pre class="font-mono text-xs bg-muted/50 rounded-lg p-4 overflow-x-auto whitespace-pre flex-1">{{ ssh_cmd }}</pre>
+      {{ copybtn(ssh_cmd) }}
+    </div>
+  </div>
+  {% endif %}
+
+  {# Pods #}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-4">Pods（{{ pods|length }}）</h2>
+    {% if pods %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="border-b text-muted-foreground text-xs">
+          <th class="text-left font-medium py-2.5 pr-4">名称</th><th class="text-left font-medium pr-4">状态</th>
+          <th class="text-left font-medium pr-4">节点</th><th class="text-left font-medium">IP</th>
+        </tr></thead>
+        <tbody>
+          {% for p in pods %}
+          <tr class="border-b border-border/40 last:border-0">
+            <td class="py-2.5 pr-4 font-mono text-xs break-all">{{ p.name }}</td>
+            <td class="pr-4">{{ p.phase }}</td>
+            <td class="pr-4 font-mono text-xs">{{ p.node }}</td>
+            <td class="font-mono text-xs">{{ p.ip }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="text-sm text-muted-foreground">暂无 Pod。</div>{% endif %}
+  </div>
+
+  {# Events #}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-4">事件（最近 {{ events|length }}）</h2>
+    {% if events %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="border-b text-muted-foreground text-xs">
+          <th class="text-left font-medium py-2.5 pr-4">时间</th><th class="text-left font-medium pr-4">类型</th>
+          <th class="text-left font-medium pr-4">原因</th><th class="text-left font-medium">信息</th>
+        </tr></thead>
+        <tbody>
+          {% for e in events %}
+          <tr class="border-b border-border/40 last:border-0">
+            <td class="py-2.5 pr-4 font-mono text-xs whitespace-nowrap">{{ e.age }}</td>
+            <td class="pr-4"><span class="badge badge-{{ 'danger' if e.type == 'Warning' else 'neutral' }}">{{ e.type }}</span></td>
+            <td class="pr-4 font-mono text-xs whitespace-nowrap">{{ e.reason }}</td>
+            <td class="text-xs text-muted-foreground break-all">{{ e.message }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}<div class="text-sm text-muted-foreground">暂无事件。</div>{% endif %}
+  </div>
+
+  {# 日志（WebSocket 实时流 · 正序/倒序 · 可折叠 · 代码块） #}
+  <div class="card overflow-hidden" x-data="logViewer('{{ logs_ws_path }}')">
+    <div class="flex items-center justify-between gap-2 px-5 py-3.5 border-b border-border">
+      <div class="flex items-center gap-2 min-w-0">
+        <h2 class="text-base font-medium">日志</h2>
+        <span class="badge" :class="connected ? 'badge-running' : 'badge-neutral'"
+              x-text="connected ? '● 实时' : '○ 已结束'"></span>
+        <span class="text-xs text-muted-foreground" x-text="count + ' 行'"></span>
+      </div>
+      <div class="flex items-center gap-1.5 shrink-0">
+        <button type="button" class="btn btn-outline h-7 px-2 text-xs" @click="toggleOrder()"
+                x-text="order === 'asc' ? '正序 ↓' : '倒序 ↑'"
+                title="切换日志顺序（倒序时最新在顶部，无需拉到底）">正序 ↓</button>
+        <button type="button" class="btn btn-outline h-7 px-2 text-xs"
+                @click="paused = !paused; if (!paused) render()"
+                x-text="paused ? '继续' : '暂停'">暂停</button>
+        <button type="button" class="btn btn-outline h-7 px-2 text-xs" @click="clearLogs()">清空</button>
+        <button type="button" class="btn btn-outline h-7 px-2 text-xs" @click="reconnect()">重连</button>
+        <button type="button" class="btn btn-outline h-7 px-2 text-xs" @click="open = !open"
+                x-text="open ? '折叠' : '展开'">折叠</button>
+      </div>
+    </div>
+    <pre x-show="open" x-ref="box"
+         class="m-0 px-5 py-4 text-xs leading-relaxed font-mono bg-zinc-950 text-zinc-100 overflow-auto max-h-[28rem] whitespace-pre"></pre>
+  </div>
+
+  {% endif %}
+</div>
+
+<script>
+  // 剪贴板复制：安全上下文用 navigator.clipboard，否则(如经 http://Tailscale 访问)回退 execCommand。
+  window.rwCopy = function (text) {
+    if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text); return; }
+    var ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.top = '-1000px';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+  };
+
+  // 日志查看器：WebSocket 实时流。正序=新日志追加到底部并自动滚底；
+  // 倒序=新日志插到顶部，只要停在顶部就一直能看到最新（不用拉到底）。
+  window.logViewer = function (path) {
+    return {
+      open: true, paused: false, connected: false, count: 0, order: 'asc', ws: null, lines: [],
+      init() { this.connect(); },
+      wsUrl() { return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + path; },
+      connect() {
+        try { this.ws = new WebSocket(this.wsUrl()); }
+        catch (e) { this.connected = false; return; }
+        this.ws.onopen = () => { this.connected = true; };
+        this.ws.onclose = () => { this.connected = false; };
+        this.ws.onerror = () => { this.connected = false; };
+        this.ws.onmessage = (ev) => { this.addLine(ev.data); };
+      },
+      addLine(text) {
+        this.lines.push(text);
+        let trimmed = false;
+        if (this.lines.length > 8000) { this.lines.shift(); trimmed = true; }
+        this.count = this.lines.length;
+        if (this.paused) return;                 // 暂停时只缓冲，不刷新视图
+        const box = this.$refs.box;
+        if (!box) return;
+        if (trimmed) { this.render(); return; }  // 触顶上限后整体重渲染以保持同步（少见）
+        const node = document.createTextNode(text + '\n');
+        if (this.order === 'asc') {
+          const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+          box.appendChild(node);
+          if (atBottom) box.scrollTop = box.scrollHeight;
+        } else {
+          const atTop = box.scrollTop < 60;
+          box.insertBefore(node, box.firstChild);
+          if (atTop) box.scrollTop = 0;
+        }
+      },
+      render() {
+        const box = this.$refs.box;
+        if (!box) return;
+        const arr = this.order === 'asc' ? this.lines : this.lines.slice().reverse();
+        box.textContent = arr.length ? arr.join('\n') + '\n' : '';
+        box.scrollTop = this.order === 'asc' ? box.scrollHeight : 0;
+      },
+      toggleOrder() { this.order = (this.order === 'asc') ? 'desc' : 'asc'; this.render(); },
+      reconnect() { try { this.ws && this.ws.close(); } catch (e) {} this.clearLogs(); this.connect(); },
+      clearLogs() { this.lines = []; this.count = 0; if (this.$refs.box) this.$refs.box.textContent = ''; },
+    };
+  };
+</script>
+{% endblock %}

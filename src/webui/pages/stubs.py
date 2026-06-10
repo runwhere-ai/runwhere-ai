@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import RedirectResponse
 
 from src.console.models import User
@@ -143,7 +143,7 @@ async def _job_rows(kind: str) -> list[list[Any]]:
     resp = await get_jobs(kind=kind, pool=None, status=None, namespace=None, page=1, pageSize=200)
     return [
         [
-            t(it.name),
+            link(it.name, f"/{kind}s/{it.name}?namespace={it.namespace}"),
             m(it.namespace),
             status_badge(it.status),
             it.ready,
@@ -287,6 +287,168 @@ for _page in _USER_PAGES:
 for _page in _ADMIN_PAGES:
     router.add_api_route(_page.path, _admin_handler(_page), methods=["GET"],
                          name=f"page_admin_{_page.path.lstrip('/')}")
+
+
+# ── 任务详情 + 日志 + notebook 访问（功能 1/2/3）──────────────────────────────
+_KIND_LABEL = {"compute": "计算服务", "notebook": "Notebook",
+               "inference": "推理服务", "training": "训练任务"}
+
+
+def _pod_selector(kind: str, name: str) -> dict:
+    # training 底层是 Job(job-name=)，其余是 Deployment/StatefulSet(app=)
+    return {"job-name": name} if kind == "training" else {"app": name}
+
+
+async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
+    import os
+    import re
+
+    list_url = f"/{kind}s"
+    ctx: dict[str, Any] = {
+        "kind": kind, "kind_label": _KIND_LABEL.get(kind, kind), "name": name,
+        "namespace": namespace, "list_url": list_url,
+        "logs_url": f"{list_url}/{name}/logs/fragment?namespace={namespace}",
+        "logs_ws_path": f"{list_url}/{name}/logs/ws?namespace={namespace}",
+        "not_found": False, "status": "Unknown", "status_tone": "neutral",
+        "age": "—", "pool": "default", "priority": "medium", "resource_type": "—",
+        "image": None, "command": None, "resources": {}, "pods": [], "events": [],
+        "access": None, "ssh_cmd": None,
+    }
+    try:
+        from server.routes.jobs import get_job_detail
+        d = await get_job_detail(jobId=name, namespace=namespace)
+    except Exception as exc:  # 404 / 500 → 渲染“未找到”而非崩
+        logger.warning("job detail %s/%s: %s", kind, name, exc)
+        ctx["not_found"] = True
+        return ctx
+
+    sb = status_badge(d.status)
+    ctx.update(status=sb["badge"], status_tone=sb["tone"], age=d.age, pool=d.pool,
+               priority=d.priority, resource_type=d.resource_type, events=d.events or [])
+
+    # 镜像 / 命令 / 资源 来自重建的 gpuctl 规格(yaml_content)
+    yc = d.yaml_content if isinstance(d.yaml_content, dict) else {}
+    env = yc.get("environment") or {}
+    res = yc.get("resources") or {}
+    ctx["image"] = env.get("image")
+    cmd = env.get("command")
+    ctx["command"] = cmd if isinstance(cmd, str) else (" ".join(map(str, cmd)) if isinstance(cmd, list) else None)
+    ctx["resources"] = {"gpu": res.get("gpu", 0), "cpu": res.get("cpu", "—"),
+                        "memory": res.get("memory", "—"), "pool": res.get("pool", d.pool)}
+
+    # Pod 列表
+    try:
+        from gpuctl.client.job_client import JobClient
+        for p in JobClient().list_pods(d.namespace, labels=_pod_selector(kind, name)):
+            ctx["pods"].append({
+                "name": p.get("name"),
+                "phase": (p.get("status") or {}).get("phase", "Unknown"),
+                "node": (p.get("spec") or {}).get("node_name") or "—",
+                "ip": (p.get("status") or {}).get("pod_ip") or "—",
+            })
+    except Exception as exc:
+        logger.warning("list pods %s: %s", name, exc)
+
+    # 访问方式(NodePort)——内网 IP 替换成对外 host(默认 Tailscale 100.97.8.55)
+    npa = ((d.access_methods or {}).get("node_port_access") or {})
+    if npa.get("node_port"):
+        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST", "100.97.8.55")
+        token = None
+        if kind == "notebook" and ctx["command"]:
+            mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", ctx["command"])
+            token = mt.group(1) if mt else None
+        ctx["access"] = {
+            "public_url": f"http://{public_host}:{npa['node_port']}/" + (f"?token={token}" if token else ""),
+            "cluster_url": npa.get("url"),
+            "node_port": npa.get("node_port"),
+            "token": token,
+        }
+
+    # SSH / 进入容器(notebook 无原生 sshd → 给 kubectl exec 等价命令)
+    pod_name = ctx["pods"][0]["name"] if ctx["pods"] else (f"{name}-0" if kind == "notebook" else name)
+    ctx["ssh_cmd"] = f"kubectl exec -it -n {d.namespace} {pod_name} -- /bin/sh"
+    return ctx
+
+
+def _detail_handler(kind: str):
+    async def _h(name: str, request: Request, namespace: str = "default",
+                 user: User = Depends(get_current_user)):
+        ctx = await _job_detail_ctx(kind, name, namespace)
+        return templates.TemplateResponse(request, "pages/_job_detail.html", {"user": user, **ctx})
+    return _h
+
+
+def _logs_handler(kind: str):
+    async def _h(name: str, request: Request, namespace: str = "default", tail: int = 200,
+                 user: User = Depends(get_current_user)):
+        logs: list = []
+        try:
+            from server.routes.jobs import get_job_logs
+            resp = await get_job_logs(jobId=name, follow=False, tail=tail, pod=None)
+            logs = resp.logs or []
+        except Exception as exc:
+            logger.warning("job logs %s: %s", name, exc)
+        return templates.TemplateResponse(request, "pages/_log_fragment.html", {"logs": logs})
+    return _h
+
+
+def _logs_ws_handler(kind: str):
+    """真·实时日志:后台线程跑同步 follow 生成器 → asyncio.Queue → WebSocket。"""
+    async def _h(websocket: WebSocket, name: str, namespace: str = "default"):
+        import asyncio
+        import threading
+
+        await websocket.accept()
+        loop = asyncio.get_running_loop()
+        q: asyncio.Queue = asyncio.Queue(maxsize=2000)
+        stop = threading.Event()
+
+        def _push(item):
+            try:
+                q.put_nowait(item)
+            except asyncio.QueueFull:
+                pass
+
+        def _producer():
+            try:
+                from gpuctl.client.log_client import LogClient
+                for line in LogClient().stream_job_logs(name, namespace):
+                    if stop.is_set():
+                        break
+                    loop.call_soon_threadsafe(_push, line)
+            except Exception as exc:  # noqa: BLE001
+                loop.call_soon_threadsafe(_push, f"[stream error] {exc}")
+            finally:
+                loop.call_soon_threadsafe(_push, None)  # 哨兵 = 流结束
+
+        threading.Thread(target=_producer, daemon=True).start()
+        try:
+            while True:
+                line = await q.get()
+                if line is None:
+                    break
+                await websocket.send_text(line)
+        except WebSocketDisconnect:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("logs ws %s: %s", name, exc)
+        finally:
+            stop.set()
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+    return _h
+
+
+for _jp in _USER_PAGES:
+    _k = _jp.path.lstrip("/").rstrip("s")          # /notebooks -> notebook
+    router.add_api_route(_jp.path + "/{name}", _detail_handler(_k),
+                         methods=["GET"], name=f"detail_{_k}")
+    router.add_api_route(_jp.path + "/{name}/logs/fragment", _logs_handler(_k),
+                         methods=["GET"], name=f"logs_{_k}")
+    router.add_api_websocket_route(_jp.path + "/{name}/logs/ws", _logs_ws_handler(_k),
+                                   name=f"logsws_{_k}")
 
 
 # ── detail pages ──────────────────────────────────────────────────────────────
