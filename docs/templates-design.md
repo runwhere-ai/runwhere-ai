@@ -101,7 +101,12 @@ job:
   ...
 ```
 
-性质:**文件本体就是合法 gpuctl YAML**(`#@` 是注释),可直接 `gpuctl create -f`、可 git 管理、可手编。Docker 持久化 = `-v ./data:/app/data`(不挂载则自定义模板不跨容器重启,文档注明)。保存时若 YAML 为具体值(无令牌),自动**令牌化**(逐字段行级替换为 `__NAME__` 等)并提取表单默认值存入 `#@ gpu/cpu/memory/image`。
+性质:**文件本体就是合法 gpuctl YAML**(`#@` 是注释),可直接 `gpuctl create -f`、可 git 管理、可手编。保存时若 YAML 为具体值(无令牌),自动**令牌化**(逐字段行级替换为 `__NAME__` 等)并提取表单默认值存入 `#@ gpu/cpu/memory/image`。
+
+**持久化三档**(评审补充 2026-06-12):
+1. **镜像 bake-in(推荐,模板即配置即代码)**:构建上下文里的 `data/templates/*.yaml` 随 Dockerfile `COPY` 打进镜像——本地放文件 → 部署即生效,k8s 部署无需任何卷。示例:`data/templates/team-std-batch.yaml`。
+2. `docker run -v ./data:/app/runwhere-ai/data`:运行期 UI 新建的模板跨重启。
+3. 什么都不做:UI 新建的模板活到容器重建为止(适合临时试验;要留下来就把文件拷回构建上下文)。
 
 实现:`src/console/template_store.py`(TemplateStore:合并视图 + CRUD + tokenize + 校验)、`src/webui/api_templates.py`(REST)。
 

@@ -1,0 +1,33 @@
+#@ display: 团队标准批处理
+#@ kind: compute
+#@ description: 随镜像发布的自定义模板示例——本地 data/templates/ 放文件,部署即生效
+#@ tags: CPU 可跑,团队标准
+#@ gpu: 0
+#@ cpu: 2
+#@ memory: 2Gi
+#@ image: python:3.11-slim
+kind: compute
+version: v1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  description: "团队标准批处理"
+environment:
+  image: __IMAGE__
+  command:
+    - python
+    - -c
+    - |
+      import time
+      for i in range(1, 51):
+          print(f"[team-batch] chunk {i}/50", flush=True)
+          time.sleep(2)
+      print("[team-batch] done")
+service:
+  replicas: 1
+  port: 8000
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__

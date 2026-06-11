@@ -38,8 +38,13 @@ RUN pip install \
 
 # ── 3) 应用源码 ───────────────────────────────────────────────────────────────
 # vendored JS（htmx / alpine）已随 git 提交；仅生成的 tailwind.css 未入库。
+# 注意：构建上下文里的 data/（自定义任务模板等平台数据）随 COPY 一并打进镜像 ——
+# 模板即配置即代码：本地 data/templates/*.yaml → 构建 → 部署即生效。
+# 运行期经 UI 新建的模板写入容器内 data/，重启/重建即丢；要持久化，要么把文件
+# 落回构建上下文，要么 `docker run -v ./data:/app/runwhere-ai/data` 挂载。
 COPY runwhere-ai/ /app/runwhere-ai/
 WORKDIR /app/runwhere-ai
+RUN mkdir -p data/templates
 
 # ── 4) Tailwind CSS ────────────────────────────────────────────────────────────
 # tailwind.css 是生成物（被 .gitignore，不入 git）。两种来源：
