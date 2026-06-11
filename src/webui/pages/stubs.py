@@ -93,10 +93,11 @@ _ICON_INDIGO = "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-in
 # ── column definitions ────────────────────────────────────────────────────────
 # Pod-level job columns mirror the /api/v1/jobs JobItem shape exactly.
 _JOB_COLUMNS = [
-    {"label": "名称",     "key": "name"},
+    {"label": "任务ID",   "key": "jobId"},
+    {"label": "任务名称", "key": "name"},
     {"label": "命名空间", "key": "namespace"},
     {"label": "状态",     "key": "status"},
-    {"label": "READY",    "key": "ready"},
+    {"label": "就绪",     "key": "ready"},
     {"label": "节点",     "key": "node"},
     {"label": "IP",       "key": "ip"},
     {"label": "AGE",      "key": "age", "align": "right"},
@@ -143,6 +144,7 @@ async def _job_rows(kind: str) -> list[list[Any]]:
     resp = await get_jobs(kind=kind, pool=None, status=None, namespace=None, page=1, pageSize=200)
     return [
         [
+            m(it.jobId),
             link(it.name, f"/{kind}s/{it.name}?namespace={it.namespace}"),
             m(it.namespace),
             status_badge(it.status),
