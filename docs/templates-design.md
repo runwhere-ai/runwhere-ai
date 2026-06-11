@@ -44,29 +44,44 @@ runwhere.ai
 | builtin | 内置(随版本发布,只读,可复制)/ 自定义 |
 | tags | 如「CPU 可跑」「需 GPU」「分布式」 |
 
-**内置模板目录(17 个,以 SkyPilot examples/llm 库为蓝本;gpuctl 无 setup 阶段,全部选用现成公开镜像)**:
+**内置模板目录(29 个)**。蓝本是 SkyPilot 的 `docs/source/examples`(约 80 个示例,下有全量对照);筛选硬条件:有官方/可信公开镜像 × 单集群适用。gpuctl 无 setup 阶段,两个替代:现成镜像,或「运行时 `pip install` 前缀」充当穷人版 setup(真正的 setup/run 两段式见 BORROW 文档 ②)。
 
-| kind | 模板 | 镜像 | 标签 |
+| kind | 模板(29) | 镜像 | 标签 |
 |---|---|---|---|
-| notebook | jupyter | jupyter/minimal-notebook | CPU 可跑 |
-| notebook | jupyter-gpu | jupyter/pytorch-notebook | 需 GPU |
+| notebook | jupyter / jupyter-gpu | jupyter/minimal·pytorch-notebook | CPU 可跑 / 需 GPU |
 | notebook | codeserver(浏览器 VS Code) | codercom/code-server | CPU 可跑 |
-| training | pytorch 单机 | pytorch/pytorch | 需 GPU |
-| training | pytorch-ddp(2 节点 torchrun) | pytorch/pytorch | 需 GPU·分布式 |
-| training | llamafactory(SFT/LoRA) | hiyouga/llamafactory | 需 GPU·LLM 微调 |
-| training | axolotl(配置驱动微调) | axolotlai/axolotl | 需 GPU·LLM 微调 |
+| notebook | marimo(响应式 notebook) | python:3.11-slim + pip | CPU 可跑 |
+| training | pytorch 单机 / pytorch-ddp | pytorch/pytorch | 需 GPU(ddp 分布式) |
+| training | llamafactory / axolotl / unsloth | hiyouga·axolotlai·unsloth 官方镜像 | 需 GPU·LLM 微调 |
+| training | nemo(NVIDIA 大模型框架) | nvcr.io/nvidia/nemo | 需 GPU·大模型 |
+| training | deepspeed(ZeRO) | pytorch/pytorch + pip | 需 GPU·分布式 |
+| training | ray(单节点并行/调参) | rayproject/ray | CPU 可跑 |
 | training | demo-cpu(合成数据冒烟) | pytorch/pytorch | CPU 可跑·Demo |
-| training | gpucheck(CUDA vectorAdd 自检) | nvcr.io cuda-sample | 需 GPU·自检 |
-| inference | vllm | vllm/vllm-openai | 需 GPU·OpenAI API |
-| inference | sglang | lmsysorg/sglang | 需 GPU·OpenAI API |
-| inference | tgi | ghcr.io/huggingface/tgi | 需 GPU |
+| training | gpucheck(CUDA vectorAdd) | nvcr.io cuda-sample | 需 GPU·自检 |
+| inference | vllm / sglang / tgi / lorax | 各官方镜像 | 需 GPU·OpenAI API |
 | inference | ollama(自动拉 qwen2.5:0.5b) | ollama/ollama | CPU 可跑 |
 | inference | embeddings(TEI bge-small-zh) | ghcr.io/huggingface/tei:cpu | CPU 可跑·RAG |
-| compute | web(nginx) | nginx:alpine | CPU 可跑 |
-| compute | batch(Python) | python:3.11-slim | CPU 可跑 |
-| compute | redis | redis:alpine | CPU 可跑·中间件 |
+| inference | tabby(代码补全/Copilot 替代) | tabbyml/tabby | CPU 可跑 |
+| inference | deepseek(R1-Distill-1.5B)/ qwen(2.5-7B)/ gptoss(20B) | vllm/vllm-openai | 模型预设(后两个需大显存) |
+| compute | web(nginx)/ batch(Python)/ redis | 官方镜像 | CPU 可跑 |
+| compute | qdrant(向量库,RAG) | qdrant/qdrant | CPU 可跑 |
+| compute | streamlit(数据应用) | python:3.11-slim + pip | CPU 可跑 |
 
-命名约束:启动页自动追加 4 位 hex 后缀,而 gpuctl 列表的名字简化启发式会把"第三段 ≥5 位字母数字"截断(§8),故模板名第三段须 <5 字符。无 GPU 集群可用 CPU 可跑 系列完整体验。Stable Diffusion / ComfyUI 因无官方维护镜像暂缓,Ray / NeMo / DeepSpeed 独立模板待 MVP 验证镜像后补。
+命名约束:启动页自动追加 4 位 hex 后缀,而 gpuctl 列表的名字简化启发式会把"第三段 ≥5 位字母数字"截断(§8),故模板名第三段须 <5 字符。
+
+### 3.1 SkyPilot examples 全量对照(~80 个 → 不静默丢)
+
+| examples 类别 | 数量 | 处理 | 说明 |
+|---|---|---|---|
+| serving/(vllm·sglang·tgi·ollama·lorax·cog·nvidia-dynamo) | 7 | **收编 5**;暂缓 cog(逐模型镜像)、dynamo(镜像太新待验证) | |
+| models/(llama·qwen·deepseek·gemma·mixtral·kimi 等) | 21 | **折叠为「引擎 × 模型预设」**,先收编 3 个非 gated 代表(deepseek-r1-distill / qwen2.5-7b / gpt-oss-20b) | llama/gemma 系 gated 需 HF token → 等 `secrets:` 段(Phase 2)再上 |
+| training/(20 框架) | 20 | **收编 8**(pytorch·ddp·llamafactory·axolotl·unsloth·nemo·deepspeed·ray);暂缓 RL 系(verl/openrlhf/skyrl/nemorl,镜像 tag 不稳)、torchtitan/fairseq2/nanochat(需 git clone+setup)、tpu/cosmos(硬件特定) | |
+| frameworks/(jupyter·marimo·spyder·mpi·dvc) | 5 | **收编 2**(jupyter 系·marimo);spyder 桌面 IDE / dvc 数据版本 / mpi 不适用 | |
+| applications/(rag·vector_database·stable_diffusion·tabby·streamlit·localgpt 等) | 11 | **收编 4**(tabby·qdrant·streamlit·embeddings 即 RAG 件);暂缓 SD/ComfyUI(无官方镜像)、ocr/sam3/localgpt(需应用代码) | |
+| spot/(bert·cifar10·resnet) | 3 | 不适用(spot 恢复演示;训练 demo 已有 demo-cpu) | |
+| agents/ · orchestrators/ · performance/ | ~13 | 不适用:agent 工作流(对应我们的 agent skill 方向)、Airflow/cron 集成指南、云厂商网络(EFA/InfiniBand) | |
+
+> 暂缓项的解锁条件都已注明(secrets 段 / 官方镜像出现 / MVP 后验证),后续按需补录。
 
 ## 4. 存储设计(目标态;原型阶段先硬编码)
 

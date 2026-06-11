@@ -578,6 +578,379 @@ storage:
     - path: /data
 """,
     ),
+    # ── 第二批(SkyPilot examples 全量对照后收编;运行时 pip install 充当 setup)──
+    Template(
+        name="notebook-marimo", display="Marimo Notebook", kind="notebook",
+        description="新一代响应式 Python notebook(纯 .py 文件,git 友好)。运行时安装,CPU 即可。",
+        tags=("CPU 可跑", "交互开发"), cpu=2, memory="2Gi",
+        image="python:3.11-slim",
+        yaml="""kind: notebook
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "Marimo 响应式 notebook"
+environment:
+  image: __IMAGE__
+  command:
+    - /bin/sh
+    - -c
+    - |
+      pip install -q marimo
+      marimo edit --host 0.0.0.0 --port 8888 --no-token
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /notebooks
+""",
+    ),
+    Template(
+        name="training-unsloth", display="Unsloth 微调", kind="training",
+        description="2-5x 提速、省显存的 LLM 微调(LoRA/QLoRA),单卡即可调 7B。",
+        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
+        image="unsloth/unsloth:latest",
+        yaml="""kind: training
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "Unsloth 高效微调"
+environment:
+  image: __IMAGE__
+  command:
+    - /bin/bash
+    - -c
+    - |
+      # TODO: 替换为你的 unsloth 微调脚本
+      python -c "import unsloth; print('unsloth ready')"
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /workspace
+""",
+    ),
+    Template(
+        name="training-nemo", display="NVIDIA NeMo 训练", kind="training",
+        description="NVIDIA 官方大模型训练框架(预训练/SFT/对齐),适合多卡大任务。",
+        tags=("需 GPU", "大模型"), gpu=2, cpu=16, memory="64Gi",
+        image="nvcr.io/nvidia/nemo:24.07",
+        yaml="""kind: training
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "NeMo 大模型训练"
+environment:
+  image: __IMAGE__
+  command:
+    - /bin/bash
+    - -c
+    - |
+      # TODO: 替换为你的 NeMo 训练脚本
+      python -c "import nemo; print('NeMo', nemo.__version__)"
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /workspace
+""",
+    ),
+    Template(
+        name="training-deepspeed", display="DeepSpeed 训练", kind="training",
+        description="ZeRO 显存优化训练。运行时安装 deepspeed,替换启动命令即用。",
+        tags=("需 GPU", "分布式"), gpu=1, cpu=8, memory="32Gi",
+        image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
+        yaml="""kind: training
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "DeepSpeed 训练"
+environment:
+  image: __IMAGE__
+  command:
+    - /bin/bash
+    - -c
+    - |
+      pip install -q deepspeed
+      ds_report
+      # TODO: deepspeed --num_gpus=$GPUCTL_NPROC_PER_NODE train.py --deepspeed ds_config.json
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+""",
+    ),
+    Template(
+        name="training-ray", display="Ray 任务(单节点)", kind="training",
+        description="Ray 并行计算/调参(tune)。单 Pod 内起本地 Ray,适合中小规模并行。",
+        tags=("CPU 可跑", "并行计算"), cpu=4, memory="8Gi",
+        image="rayproject/ray:latest",
+        yaml="""kind: training
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "Ray 单节点并行任务"
+environment:
+  image: __IMAGE__
+  command:
+    - /bin/bash
+    - -c
+    - |
+      # TODO: 替换为你的 Ray 脚本(ray.init() 本地模式)
+      python -c "import ray; ray.init(); print(ray.cluster_resources())"
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+""",
+    ),
+    Template(
+        name="inference-lorax", display="LoRAX 多适配器推理", kind="inference",
+        description="一个基座模型动态加载上百个 LoRA 适配器(Predibase),多租户微调服务。",
+        tags=("需 GPU", "LoRA"), gpu=1, cpu=4, memory="16Gi",
+        image="ghcr.io/predibase/lorax:main",
+        yaml="""kind: inference
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "LoRAX 多适配器推理"
+environment:
+  image: __IMAGE__
+  command:
+    - lorax-launcher
+    - --model-id=Qwen/Qwen2.5-0.5B-Instruct
+    - --hostname=0.0.0.0
+    - --port=8000
+service:
+  replicas: 1
+  port: 8000
+  healthCheck: /health
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /data
+""",
+    ),
+    Template(
+        name="inference-tabby", display="Tabby 代码补全", kind="inference",
+        description="自托管 AI 编程助手(Copilot 替代),IDE 插件直连。CPU 也能跑小模型。",
+        tags=("CPU 可跑", "编程助手"), cpu=4, memory="8Gi",
+        image="tabbyml/tabby:latest",
+        yaml="""kind: inference
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "Tabby 代码补全服务"
+environment:
+  image: __IMAGE__
+  command:
+    - /opt/tabby/bin/tabby
+    - serve
+    - --model=TabbyML/StarCoder-1B
+    - --device=cpu
+service:
+  replicas: 1
+  port: 8080
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /data
+""",
+    ),
+    Template(
+        name="inference-deepseek", display="DeepSeek-R1 蒸馏版", kind="inference",
+        description="DeepSeek-R1-Distill-Qwen-1.5B 推理(vLLM),单卡可跑的推理小钢炮。",
+        tags=("需 GPU", "模型预设"), gpu=1, cpu=4, memory="16Gi",
+        image="vllm/vllm-openai:latest",
+        yaml="""kind: inference
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "DeepSeek-R1 蒸馏版推理"
+environment:
+  image: __IMAGE__
+  command:
+    - python
+    - -m
+    - vllm.entrypoints.openai.api_server
+    - --model=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+    - --host=0.0.0.0
+    - --port=8000
+service:
+  replicas: 1
+  port: 8000
+  healthCheck: /health
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /models
+""",
+    ),
+    Template(
+        name="inference-qwen", display="Qwen2.5-7B-Instruct", kind="inference",
+        description="Qwen2.5-7B 指令模型推理(vLLM),建议 ≥24G 显存。",
+        tags=("需大显存", "模型预设"), gpu=1, cpu=8, memory="32Gi",
+        image="vllm/vllm-openai:latest",
+        yaml="""kind: inference
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "Qwen2.5-7B-Instruct 推理"
+environment:
+  image: __IMAGE__
+  command:
+    - python
+    - -m
+    - vllm.entrypoints.openai.api_server
+    - --model=Qwen/Qwen2.5-7B-Instruct
+    - --host=0.0.0.0
+    - --port=8000
+service:
+  replicas: 1
+  port: 8000
+  healthCheck: /health
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /models
+""",
+    ),
+    Template(
+        name="inference-gptoss", display="GPT-OSS-20B", kind="inference",
+        description="OpenAI 开源 GPT-OSS-20B 推理(vLLM),建议 ≥24G 显存。",
+        tags=("需大显存", "模型预设"), gpu=1, cpu=8, memory="48Gi",
+        image="vllm/vllm-openai:latest",
+        yaml="""kind: inference
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: medium
+  description: "GPT-OSS-20B 推理"
+environment:
+  image: __IMAGE__
+  command:
+    - python
+    - -m
+    - vllm.entrypoints.openai.api_server
+    - --model=openai/gpt-oss-20b
+    - --host=0.0.0.0
+    - --port=8000
+service:
+  replicas: 1
+  port: 8000
+  healthCheck: /health
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /models
+""",
+    ),
+    Template(
+        name="compute-qdrant", display="Qdrant 向量数据库", kind="compute",
+        description="RAG 标配向量库,REST/gRPC 双协议。CPU 即可运行,配合 Embeddings 服务使用。",
+        tags=("CPU 可跑", "RAG"), cpu=2, memory="2Gi",
+        image="qdrant/qdrant:latest",
+        yaml="""kind: compute
+version: v1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  description: "Qdrant 向量数据库"
+environment:
+  image: __IMAGE__
+  command: ["/qdrant/entrypoint.sh"]
+service:
+  replicas: 1
+  port: 6333
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+storage:
+  workdirs:
+    - path: /qdrant/storage
+""",
+    ),
+    Template(
+        name="compute-streamlit", display="Streamlit 应用", kind="compute",
+        description="数据应用快速搭建。默认跑官方 hello 演示,替换为你的 app.py 即上线。",
+        tags=("CPU 可跑", "Web 应用"), cpu=1, memory="1Gi",
+        image="python:3.11-slim",
+        yaml="""kind: compute
+version: v1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  description: "Streamlit 数据应用"
+environment:
+  image: __IMAGE__
+  command:
+    - /bin/sh
+    - -c
+    - |
+      pip install -q streamlit
+      # TODO: 换成 streamlit run your_app.py
+      streamlit hello --server.address 0.0.0.0 --server.port 8000 --server.headless true
+service:
+  replicas: 1
+  port: 8000
+resources:
+  pool: __POOL__
+  gpu: __GPU__
+  cpu: __CPU__
+  memory: __MEMORY__
+""",
+    ),
 ]
 
 _BY_NAME = {t.name: t for t in TEMPLATES}
