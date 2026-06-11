@@ -23,9 +23,12 @@
         {{ label }}
       </a>
     {% endfor %}
-    <div class="ml-auto">
+    <div class="ml-auto flex items-center gap-2">
       <input type="search" x-model="q" placeholder="搜索模板…"
              class="h-8 w-56 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring" />
+      <a href="/quickstart/new{% if active_kind %}?kind={{ active_kind }}{% endif %}" class="btn btn-primary h-8 px-3">
+        {{ icon("plus", class="h-3.5 w-3.5") }} 新建模板
+      </a>
     </div>
   </div>
 
@@ -42,7 +45,8 @@
           <div class="font-medium leading-snug">{{ c.display }}</div>
           <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
             <span class="badge badge-kind-{{ c.kind }}">{{ c.kind_label }}</span>
-            {% if c.builtin %}<span class="badge badge-neutral">内置</span>{% endif %}
+            {% if c.builtin %}<span class="badge badge-neutral">内置</span>
+            {% else %}<span class="badge badge-running">自定义</span>{% endif %}
           </div>
         </div>
       </div>
@@ -56,6 +60,16 @@
         <a href="/quickstart/{{ c.name }}" class="btn btn-primary h-8 px-3 flex-1 justify-center">
           {{ icon("play", class="h-3.5 w-3.5") }} 从此模板启动
         </a>
+        {% if c.builtin %}
+          <a href="/quickstart/new?copy={{ c.name }}" class="btn btn-outline h-8 px-2.5" title="复制为新模板">复制</a>
+        {% else %}
+          <a href="/quickstart/{{ c.name }}/edit" class="btn btn-outline h-8 px-2.5">编辑</a>
+          <button type="button" class="btn btn-destructive h-8 px-2.5"
+                  @click="if (confirm('删除模板 {{ c.name }}?已启动的任务不受影响。')) {
+                            fetch('/api/v1/templates/{{ c.name }}', { method: 'DELETE' })
+                              .then(r => r.ok ? location.reload() : r.json().then(d => alert(d.detail || '删除失败')));
+                          }">删除</button>
+        {% endif %}
       </div>
     </div>
     {% endfor %}
@@ -67,7 +81,9 @@
 
   {# Footnote #}
   <p class="text-xs text-muted-foreground">
-    原型说明:内置模板只读;「自定义模板 / 复制为新模板 / 从任务另存为模板」在 MVP 提供(见 docs/templates-design.md)。
+    内置模板只读(可「复制」成自定义);自定义模板存于平台数据目录
+    <span class="font-mono">data/templates/*.yaml</span>,文件本体即合法 gpuctl YAML,可直接
+    <span class="font-mono">gpuctl create -f</span> 使用。
   </p>
 </div>
 {% endblock %}

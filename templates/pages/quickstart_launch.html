@@ -148,7 +148,7 @@
           });
           const d = await r.json();
           this.result = d.ok
-            ? { ok: true, title: `YAML 合法(kind=${d.kind}, name=${d.name})`, detail: '' }
+            ? { ok: true, title: `YAML 合法(kind=${d.kind})`, detail: '' }
             : { ok: false, title: 'YAML 校验失败', detail: d.error };
         } catch (e) {
           this.result = { ok: false, title: '校验请求失败', detail: String(e) };

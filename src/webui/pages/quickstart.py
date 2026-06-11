@@ -1,30 +1,22 @@
-"""快速开始(Quickstart)— 任务模板陈列馆 + 从模板启动。
+"""快速开始(Quickstart)— 任务模板陈列馆 + 从模板启动 + 自定义模板编辑。
 
-原型阶段:内置模板硬编码于 TEMPLATES;评审通过后迁移 ConfigMap 存储 + CRUD
-(见 docs/templates-design.md §4)。提交复用 gpuctl 的 POST /api/v1/jobs,
-与 CLI 同一条代码路径;校验在本层用 BaseParser 纯解析(gpuctl 的 dryRun
-字段当前被忽略,不能用于校验 — design doc §8)。
+内置模板:src/console/templates_builtin.py(随代码发布,只读)。
+自定义模板:本地文件存储,见 src/console/template_store.py(CRUD 经
+/api/v1/templates,api_templates.py)。
 
-模板 YAML 内嵌覆盖令牌(__NAME__/__NAMESPACE__/__POOL__/__GPU__/__CPU__/
-__MEMORY__/__IMAGE__),启动页 Alpine 据表单值实时替换(单向同步;手改
-YAML 即进入手动模式)。
-
-模板目录以 SkyPilot examples/llm 库为蓝本(详见 workspace docs/BORROW-skypilot.md),
-但 gpuctl 无 setup 阶段,故全部选用现成公开镜像。
-
-模板命名规则:启动页会给任务名追加 4 位 hex 后缀;gpuctl 列表的名字简化
-启发式会把"第三段 ≥5 位字母数字"当作 pod hash 截断(design doc §8),
-因此模板名的第三段必须 <5 字符(或只用两段)。
+提交复用 gpuctl 的 POST /api/v1/jobs,与 CLI 同一条代码路径;校验在本层
+做"令牌替换占位值后的纯解析"(gpuctl 的 dryRun 字段当前被忽略 — design doc §8)。
 """
 from __future__ import annotations
 
 import secrets
-from dataclasses import dataclass
 
+import yaml as pyyaml
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from src.console.models import User
+from src.console.template_store import STORE, Template, validate_template_yaml, TemplateError
 from src.webui.deps import get_current_user
 from src.webui.templating import templates
 
@@ -43,919 +35,6 @@ _KIND_ICON = {
 }
 
 
-@dataclass(frozen=True)
-class Template:
-    name: str
-    display: str
-    description: str
-    kind: str
-    tags: tuple = ()
-    builtin: bool = True
-    # 表单默认值(令牌替换的初值)
-    gpu: int = 0
-    cpu: int = 1
-    memory: str = "1Gi"
-    image: str = ""
-    yaml: str = ""
-
-
-TEMPLATES: list[Template] = [
-    # ── Notebook ──────────────────────────────────────────────────────────────
-    Template(
-        name="notebook-jupyter", display="Jupyter Notebook", kind="notebook",
-        description="3 分钟拉起 JupyterLab,数据探索 / 轻量开发。CPU 即可运行。",
-        tags=("CPU 可跑", "交互开发"), cpu=2, memory="2Gi",
-        image="jupyter/minimal-notebook:latest",
-        yaml="""kind: notebook
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "JupyterLab 开发环境"
-environment:
-  image: __IMAGE__
-  command: ["start-notebook.sh", "--NotebookApp.token=notebook-token"]
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /home/jovyan/work
-""",
-    ),
-    Template(
-        name="notebook-jupyter-gpu", display="Jupyter Notebook(GPU)", kind="notebook",
-        description="带 1 张 GPU 的 PyTorch JupyterLab,模型调试 / 小规模微调。",
-        tags=("需 GPU", "交互开发"), gpu=1, cpu=4, memory="16Gi",
-        image="jupyter/pytorch-notebook:latest",
-        yaml="""kind: notebook
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "GPU JupyterLab 开发环境"
-environment:
-  image: __IMAGE__
-  command: ["start-notebook.sh", "--NotebookApp.token=notebook-token"]
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /home/jovyan/work
-""",
-    ),
-    Template(
-        name="notebook-codeserver", display="VS Code(浏览器版)", kind="notebook",
-        description="code-server:浏览器里的完整 VS Code,远程开发无需本地 IDE。CPU 即可运行。",
-        tags=("CPU 可跑", "交互开发"), cpu=2, memory="2Gi",
-        image="codercom/code-server:latest",
-        yaml="""kind: notebook
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "code-server 浏览器 IDE"
-environment:
-  image: __IMAGE__
-  command: ["code-server", "--bind-addr", "0.0.0.0:8888", "--auth", "none"]
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /home/coder/project
-""",
-    ),
-    # ── Training ──────────────────────────────────────────────────────────────
-    Template(
-        name="training-pytorch", display="PyTorch 单机训练", kind="training",
-        description="单节点 PyTorch 训练。把 run 段替换成你的训练命令。",
-        tags=("需 GPU", "单机"), gpu=1, cpu=8, memory="32Gi",
-        image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "PyTorch 单机训练"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      # TODO: 替换为你的训练命令
-      python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    Template(
-        name="training-pytorch-ddp", display="PyTorch 分布式训练(DDP)", kind="training",
-        description="2 节点 torchrun DDP;平台注入 MASTER_ADDR / RANK / WORLD_SIZE。",
-        tags=("需 GPU", "分布式"), gpu=2, cpu=8, memory="32Gi",
-        image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "PyTorch DDP 多节点训练"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      torchrun \\
-        --nnodes=$WORLD_SIZE --node_rank=$RANK \\
-        --nproc_per_node=$GPUCTL_NPROC_PER_NODE \\
-        --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \\
-        train.py
-distributed:
-  mode: multi-node
-  workers: 2
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    Template(
-        name="training-llamafactory", display="LLaMA-Factory 微调(SFT)", kind="training",
-        description="零代码 LLM 微调:支持 LoRA/QLoRA/全参,改 model/dataset 即用。",
-        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
-        image="hiyouga/llamafactory:0.9.4",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "LLaMA-Factory SFT 微调"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      llamafactory-cli train \\
-        --stage sft --do_train \\
-        --model_name_or_path Qwen/Qwen2.5-0.5B-Instruct \\
-        --dataset alpaca_zh_demo --template qwen \\
-        --finetuning_type lora \\
-        --output_dir /output/sft
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /output
-""",
-    ),
-    Template(
-        name="training-axolotl", display="Axolotl 微调", kind="training",
-        description="配置驱动的 LLM 微调框架(内置 DeepSpeed/FSDP)。挂载你的 config.yaml 即跑。",
-        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
-        image="axolotlai/axolotl:main-latest",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Axolotl 微调"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      # TODO: 把 config.yaml 放到工作目录(NFS)后改这里
-      axolotl train /workspace/config.yaml
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /workspace
-""",
-    ),
-    Template(
-        name="training-demo-cpu", display="训练冒烟 Demo(CPU)", kind="training",
-        description="合成数据训练一个小模型,loss 实时下降。无 GPU 也能完整体验提交→日志→完成。",
-        tags=("CPU 可跑", "Demo"), cpu=1, memory="1Gi",
-        image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "CPU 训练冒烟 Demo(合成数据)"
-environment:
-  image: __IMAGE__
-  command:
-    - python
-    - -c
-    - |
-      import torch, torch.nn as nn
-      torch.manual_seed(0)
-      X = torch.randn(512, 16); y = X @ torch.randn(16, 1) + 0.1 * torch.randn(512, 1)
-      model = nn.Sequential(nn.Linear(16, 32), nn.ReLU(), nn.Linear(32, 1))
-      opt = torch.optim.Adam(model.parameters(), lr=1e-2)
-      for step in range(1, 201):
-          loss = nn.functional.mse_loss(model(X), y)
-          opt.zero_grad(); loss.backward(); opt.step()
-          if step % 10 == 0:
-              print(f"[train] step {step}/200 loss={loss.item():.4f}", flush=True)
-      print("[train] done")
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    Template(
-        name="training-gpucheck", display="GPU 环境自检", kind="training",
-        description="CUDA vectorAdd 一次性自检任务,验证节点 GPU/驱动可用,跑完即 Succeeded。",
-        tags=("需 GPU", "自检"), gpu=1, cpu=1, memory="1Gi",
-        image="nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "GPU 环境自检(CUDA vectorAdd)"
-environment:
-  image: __IMAGE__
-  command: ["/cuda-samples/vectorAdd"]
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    # ── Inference ─────────────────────────────────────────────────────────────
-    Template(
-        name="inference-vllm", display="vLLM 推理服务", kind="inference",
-        description="vLLM OpenAI 兼容 API,默认 Qwen2.5-0.5B;改 --model 换模型。",
-        tags=("需 GPU", "OpenAI API"), gpu=1, cpu=4, memory="16Gi",
-        image="vllm/vllm-openai:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "vLLM OpenAI 兼容推理服务"
-environment:
-  image: __IMAGE__
-  command:
-    - python
-    - -m
-    - vllm.entrypoints.openai.api_server
-    - --model=Qwen/Qwen2.5-0.5B-Instruct
-    - --host=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /models
-""",
-    ),
-    Template(
-        name="inference-sglang", display="SGLang 推理服务", kind="inference",
-        description="SGLang 高吞吐推理(RadixAttention),OpenAI 兼容;默认 Qwen2.5-0.5B。",
-        tags=("需 GPU", "OpenAI API"), gpu=1, cpu=4, memory="16Gi",
-        image="lmsysorg/sglang:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "SGLang 推理服务"
-environment:
-  image: __IMAGE__
-  command:
-    - python3
-    - -m
-    - sglang.launch_server
-    - --model-path=Qwen/Qwen2.5-0.5B-Instruct
-    - --host=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /models
-""",
-    ),
-    Template(
-        name="inference-tgi", display="TGI 推理服务", kind="inference",
-        description="HuggingFace Text Generation Inference;默认 Qwen2.5-0.5B,改 --model-id 换模型。",
-        tags=("需 GPU", "HuggingFace"), gpu=1, cpu=4, memory="16Gi",
-        image="ghcr.io/huggingface/text-generation-inference:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "TGI 推理服务"
-environment:
-  image: __IMAGE__
-  command:
-    - text-generation-launcher
-    - --model-id=Qwen/Qwen2.5-0.5B-Instruct
-    - --hostname=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /data
-""",
-    ),
-    Template(
-        name="inference-ollama", display="Ollama 推理服务", kind="inference",
-        description="本地大模型一键跑:启动即拉取 qwen2.5:0.5b,CPU 也能服务小模型。",
-        tags=("CPU 可跑", "本地模型"), cpu=4, memory="8Gi",
-        image="ollama/ollama:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Ollama 推理服务"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/sh
-    - -c
-    - |
-      ollama serve &
-      sleep 8 && ollama pull qwen2.5:0.5b
-      wait
-service:
-  replicas: 1
-  port: 11434
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /root/.ollama
-""",
-    ),
-    Template(
-        name="inference-embeddings", display="Embeddings 服务(TEI)", kind="inference",
-        description="HuggingFace TEI 向量化服务,默认 bge-small-zh;RAG 标配,CPU 即可运行。",
-        tags=("CPU 可跑", "RAG"), cpu=2, memory="4Gi",
-        image="ghcr.io/huggingface/text-embeddings-inference:cpu-latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "TEI 向量化服务"
-environment:
-  image: __IMAGE__
-  command:
-    - text-embeddings-router
-    - --model-id=BAAI/bge-small-zh-v1.5
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /data
-""",
-    ),
-    # ── Compute ───────────────────────────────────────────────────────────────
-    Template(
-        name="compute-web", display="Web 服务(nginx)", kind="compute",
-        description="常驻 Web 服务示例,NodePort 对外。CPU 即可运行,适合冒烟验证。",
-        tags=("CPU 可跑", "常驻服务"), cpu=1, memory="256Mi",
-        image="nginx:alpine",
-        yaml="""kind: compute
-version: v1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  description: "nginx Web 服务"
-environment:
-  image: __IMAGE__
-  command: ["nginx", "-g", "daemon off;"]
-service:
-  replicas: 1
-  port: 80
-  healthCheck: /
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /usr/share/nginx/html
-""",
-    ),
-    Template(
-        name="compute-batch", display="批处理任务(Python)", kind="compute",
-        description="通用容器批处理:数据预处理 / 评估 / 特征工程。CPU 即可运行。",
-        tags=("CPU 可跑", "批处理"), cpu=2, memory="2Gi",
-        image="python:3.11-slim",
-        yaml="""kind: compute
-version: v1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  description: "Python 批处理任务"
-environment:
-  image: __IMAGE__
-  command:
-    - python
-    - -c
-    - |
-      import time
-      # TODO: 替换为你的处理逻辑
-      for i in range(1, 101):
-          print(f"[batch] processing chunk {i}/100", flush=True)
-          time.sleep(3)
-      print("[batch] done")
-service:
-  replicas: 1
-  port: 8000
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    Template(
-        name="compute-redis", display="Redis 缓存", kind="compute",
-        description="集群内 Redis,给训练/推理任务做特征缓存或消息队列。CPU 即可运行。",
-        tags=("CPU 可跑", "中间件"), cpu=1, memory="512Mi",
-        image="redis:alpine",
-        yaml="""kind: compute
-version: v1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  description: "Redis 缓存服务"
-environment:
-  image: __IMAGE__
-  command: ["redis-server", "--appendonly", "no"]
-service:
-  replicas: 1
-  port: 6379
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /data
-""",
-    ),
-    # ── 第二批(SkyPilot examples 全量对照后收编;运行时 pip install 充当 setup)──
-    Template(
-        name="notebook-marimo", display="Marimo Notebook", kind="notebook",
-        description="新一代响应式 Python notebook(纯 .py 文件,git 友好)。运行时安装,CPU 即可。",
-        tags=("CPU 可跑", "交互开发"), cpu=2, memory="2Gi",
-        image="python:3.11-slim",
-        yaml="""kind: notebook
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Marimo 响应式 notebook"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/sh
-    - -c
-    - |
-      pip install -q marimo
-      marimo edit --host 0.0.0.0 --port 8888 --no-token
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /notebooks
-""",
-    ),
-    Template(
-        name="training-unsloth", display="Unsloth 微调", kind="training",
-        description="2-5x 提速、省显存的 LLM 微调(LoRA/QLoRA),单卡即可调 7B。",
-        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
-        image="unsloth/unsloth:latest",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Unsloth 高效微调"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      # TODO: 替换为你的 unsloth 微调脚本
-      python -c "import unsloth; print('unsloth ready')"
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /workspace
-""",
-    ),
-    Template(
-        name="training-nemo", display="NVIDIA NeMo 训练", kind="training",
-        description="NVIDIA 官方大模型训练框架(预训练/SFT/对齐),适合多卡大任务。",
-        tags=("需 GPU", "大模型"), gpu=2, cpu=16, memory="64Gi",
-        image="nvcr.io/nvidia/nemo:24.07",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "NeMo 大模型训练"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      # TODO: 替换为你的 NeMo 训练脚本
-      python -c "import nemo; print('NeMo', nemo.__version__)"
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /workspace
-""",
-    ),
-    Template(
-        name="training-deepspeed", display="DeepSpeed 训练", kind="training",
-        description="ZeRO 显存优化训练。运行时安装 deepspeed,替换启动命令即用。",
-        tags=("需 GPU", "分布式"), gpu=1, cpu=8, memory="32Gi",
-        image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "DeepSpeed 训练"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      pip install -q deepspeed
-      ds_report
-      # TODO: deepspeed --num_gpus=$GPUCTL_NPROC_PER_NODE train.py --deepspeed ds_config.json
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    Template(
-        name="training-ray", display="Ray 任务(单节点)", kind="training",
-        description="Ray 并行计算/调参(tune)。单 Pod 内起本地 Ray,适合中小规模并行。",
-        tags=("CPU 可跑", "并行计算"), cpu=4, memory="8Gi",
-        image="rayproject/ray:latest",
-        yaml="""kind: training
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Ray 单节点并行任务"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/bash
-    - -c
-    - |
-      # TODO: 替换为你的 Ray 脚本(ray.init() 本地模式)
-      python -c "import ray; ray.init(); print(ray.cluster_resources())"
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-    Template(
-        name="inference-lorax", display="LoRAX 多适配器推理", kind="inference",
-        description="一个基座模型动态加载上百个 LoRA 适配器(Predibase),多租户微调服务。",
-        tags=("需 GPU", "LoRA"), gpu=1, cpu=4, memory="16Gi",
-        image="ghcr.io/predibase/lorax:main",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "LoRAX 多适配器推理"
-environment:
-  image: __IMAGE__
-  command:
-    - lorax-launcher
-    - --model-id=Qwen/Qwen2.5-0.5B-Instruct
-    - --hostname=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /data
-""",
-    ),
-    Template(
-        name="inference-tabby", display="Tabby 代码补全", kind="inference",
-        description="自托管 AI 编程助手(Copilot 替代),IDE 插件直连。CPU 也能跑小模型。",
-        tags=("CPU 可跑", "编程助手"), cpu=4, memory="8Gi",
-        image="tabbyml/tabby:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Tabby 代码补全服务"
-environment:
-  image: __IMAGE__
-  command:
-    - /opt/tabby/bin/tabby
-    - serve
-    - --model=TabbyML/StarCoder-1B
-    - --device=cpu
-service:
-  replicas: 1
-  port: 8080
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /data
-""",
-    ),
-    Template(
-        name="inference-deepseek", display="DeepSeek-R1 蒸馏版", kind="inference",
-        description="DeepSeek-R1-Distill-Qwen-1.5B 推理(vLLM),单卡可跑的推理小钢炮。",
-        tags=("需 GPU", "模型预设"), gpu=1, cpu=4, memory="16Gi",
-        image="vllm/vllm-openai:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "DeepSeek-R1 蒸馏版推理"
-environment:
-  image: __IMAGE__
-  command:
-    - python
-    - -m
-    - vllm.entrypoints.openai.api_server
-    - --model=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
-    - --host=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /models
-""",
-    ),
-    Template(
-        name="inference-qwen", display="Qwen2.5-7B-Instruct", kind="inference",
-        description="Qwen2.5-7B 指令模型推理(vLLM),建议 ≥24G 显存。",
-        tags=("需大显存", "模型预设"), gpu=1, cpu=8, memory="32Gi",
-        image="vllm/vllm-openai:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "Qwen2.5-7B-Instruct 推理"
-environment:
-  image: __IMAGE__
-  command:
-    - python
-    - -m
-    - vllm.entrypoints.openai.api_server
-    - --model=Qwen/Qwen2.5-7B-Instruct
-    - --host=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /models
-""",
-    ),
-    Template(
-        name="inference-gptoss", display="GPT-OSS-20B", kind="inference",
-        description="OpenAI 开源 GPT-OSS-20B 推理(vLLM),建议 ≥24G 显存。",
-        tags=("需大显存", "模型预设"), gpu=1, cpu=8, memory="48Gi",
-        image="vllm/vllm-openai:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "GPT-OSS-20B 推理"
-environment:
-  image: __IMAGE__
-  command:
-    - python
-    - -m
-    - vllm.entrypoints.openai.api_server
-    - --model=openai/gpt-oss-20b
-    - --host=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /models
-""",
-    ),
-    Template(
-        name="compute-qdrant", display="Qdrant 向量数据库", kind="compute",
-        description="RAG 标配向量库,REST/gRPC 双协议。CPU 即可运行,配合 Embeddings 服务使用。",
-        tags=("CPU 可跑", "RAG"), cpu=2, memory="2Gi",
-        image="qdrant/qdrant:latest",
-        yaml="""kind: compute
-version: v1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  description: "Qdrant 向量数据库"
-environment:
-  image: __IMAGE__
-  command: ["/qdrant/entrypoint.sh"]
-service:
-  replicas: 1
-  port: 6333
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /qdrant/storage
-""",
-    ),
-    Template(
-        name="compute-streamlit", display="Streamlit 应用", kind="compute",
-        description="数据应用快速搭建。默认跑官方 hello 演示,替换为你的 app.py 即上线。",
-        tags=("CPU 可跑", "Web 应用"), cpu=1, memory="1Gi",
-        image="python:3.11-slim",
-        yaml="""kind: compute
-version: v1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  description: "Streamlit 数据应用"
-environment:
-  image: __IMAGE__
-  command:
-    - /bin/sh
-    - -c
-    - |
-      pip install -q streamlit
-      # TODO: 换成 streamlit run your_app.py
-      streamlit hello --server.address 0.0.0.0 --server.port 8000 --server.headless true
-service:
-  replicas: 1
-  port: 8000
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-""",
-    ),
-]
-
-_BY_NAME = {t.name: t for t in TEMPLATES}
-
-
 def _card(t: Template) -> dict:
     icon_name, icon_cls = _KIND_ICON[t.kind]
     return {
@@ -969,17 +48,74 @@ def _card(t: Template) -> dict:
 async def quickstart(request: Request, kind: str | None = None,
                      user: User = Depends(get_current_user)):
     kinds = [("", "全部")] + [(k, _KIND_LABEL[k]) for k in ("notebook", "training", "inference", "compute")]
-    items = [_card(t) for t in TEMPLATES if (not kind or t.kind == kind)]
+    items = [_card(t) for t in STORE.list_all(kind)]
     return templates.TemplateResponse(
         request, "pages/quickstart.html",
         {"user": user, "cards": items, "kinds": kinds, "active_kind": kind or ""},
     )
 
 
+# 注意:/quickstart/new 必须注册在 /quickstart/{name} 之前
+@router.get("/quickstart/new")
+async def quickstart_new(request: Request, copy: str | None = None,
+                         from_job: str | None = None, namespace: str = "default",
+                         kind: str | None = None,
+                         user: User = Depends(get_current_user)):
+    """新建模板:空白 / 复制现有(copy=)/ 从任务另存(from_job=)。"""
+    ctx = {"mode": "create", "name": "", "display": "", "description": "",
+           "kind": kind if kind in _KIND_LABEL else "compute", "tags": "", "yaml": ""}
+
+    if copy:
+        t = STORE.get(copy)
+        if t:
+            ctx.update(name=f"{t.name}-copy", display=f"{t.display}(副本)",
+                       description=t.description, kind=t.kind,
+                       tags=",".join(t.tags), yaml=t.yaml)
+    elif from_job:
+        try:
+            from server.routes.jobs import get_job_detail
+            d = await get_job_detail(jobId=from_job, namespace=namespace)
+            yc = d.yaml_content if isinstance(d.yaml_content, dict) else {}
+            ctx.update(
+                name=f"{from_job}-tpl"[:40],
+                display=f"{from_job} 模板",
+                description=f"从任务 {from_job} 另存",
+                kind=d.kind if d.kind in _KIND_LABEL else "compute",
+                yaml=pyyaml.safe_dump(yc, allow_unicode=True, sort_keys=False),
+            )
+        except Exception:
+            pass  # 任务不存在时给空白表单
+    elif ctx["kind"]:
+        starter = next((t for t in STORE.list_all(ctx["kind"]) if t.builtin), None)
+        if starter:
+            ctx["yaml"] = starter.yaml
+
+    return templates.TemplateResponse(
+        request, "pages/template_edit.html",
+        {"user": user, "kind_options": list(_KIND_LABEL.items()), **ctx},
+    )
+
+
+@router.get("/quickstart/{name}/edit")
+async def quickstart_edit(name: str, request: Request,
+                          user: User = Depends(get_current_user)):
+    t = STORE.get(name)
+    if not t:
+        return RedirectResponse("/quickstart", status_code=302)
+    if t.builtin:  # 内置只读 → 引导到复制流
+        return RedirectResponse(f"/quickstart/new?copy={name}", status_code=302)
+    return templates.TemplateResponse(
+        request, "pages/template_edit.html",
+        {"user": user, "mode": "edit", "name": t.name, "display": t.display,
+         "description": t.description, "kind": t.kind, "tags": ",".join(t.tags),
+         "yaml": t.yaml, "kind_options": list(_KIND_LABEL.items())},
+    )
+
+
 @router.get("/quickstart/{name}")
 async def quickstart_launch(name: str, request: Request,
                             user: User = Depends(get_current_user)):
-    t = _BY_NAME.get(name)
+    t = STORE.get(name)
     if not t:
         return RedirectResponse("/quickstart", status_code=302)
     suggested = f"{t.name}-{secrets.token_hex(2)}"
@@ -998,13 +134,10 @@ async def quickstart_launch(name: str, request: Request,
 @router.post("/quickstart/validate")
 async def quickstart_validate(request: Request,
                               user: User = Depends(get_current_user)):
-    """纯解析校验(不创建任何资源)。"""
+    """纯解析校验(令牌自动替换为占位值;不创建任何资源)。"""
     body = await request.json()
-    yaml_content = body.get("yamlContent", "")
     try:
-        from gpuctl.parser.base_parser import BaseParser
-        parsed = BaseParser.parse_yaml(yaml_content)
-        return JSONResponse({"ok": True, "kind": parsed.kind,
-                             "name": parsed.job.name})
-    except Exception as exc:  # ParserError / yaml error → 原样回显
+        kind = validate_template_yaml(body.get("yamlContent", ""))
+        return JSONResponse({"ok": True, "kind": kind})
+    except TemplateError as exc:
         return JSONResponse({"ok": False, "error": str(exc)})

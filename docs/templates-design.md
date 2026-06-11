@@ -83,29 +83,27 @@ runwhere.ai
 
 > 暂缓项的解锁条件都已注明(secrets 段 / 官方镜像出现 / MVP 后验证),后续按需补录。
 
-## 4. 存储设计(目标态;原型阶段先硬编码)
+## 4. 存储设计(已实现:本地文件,零外部依赖)
 
-每个模板 = 一个 **ConfigMap**(命名空间 `runwhere-system`):
+> 评审改向(2026-06-12):原方案是 ConfigMap,被否——①平台自身的应用数据不应写进**被管理的客户 K8s 集群**;②安装必须保持「一条 docker 命令」,不引入 K8s 依赖。改为**本地文件存储**。
+
+- **内置模板**(29 个):随代码发布,`src/console/templates_builtin.py`,只读(改/删 → 403,只能「复制为新模板」)。
+- **自定义模板**:`<RWAI_DATA_DIR>/templates/<name>.yaml`(默认 `./data`),元数据放文件头的 `#@ ` 注释:
 
 ```yaml
-metadata:
-  name: tpl-training-pytorch-ddp
-  labels:
-    runwhere.ai/template: "true"
-    runwhere.ai/template-kind: training
-  annotations:
-    runwhere.ai/display-name: "PyTorch 分布式训练"
-    runwhere.ai/description: "..."
-    runwhere.ai/builtin: "false"
-data:
-  template.yaml: |
-    kind: training
-    ...
+#@ display: 我的 SFT 微调
+#@ kind: training
+#@ description: 团队标准微调配置
+#@ tags: 需 GPU,LLM 微调
+kind: training
+job:
+  name: __NAME__
+  ...
 ```
 
-理由:与 gpuctl 一切皆 k8s 资源的哲学一致、kubectl 可管可备份、resourceVersion 天然防并发冲突、无需引入 DB。内置模板由 `deploy/k8s/` 清单随版本 apply,API 层对 `builtin` 强制只读(改/删 → 403,只能「复制为新模板」)。
+性质:**文件本体就是合法 gpuctl YAML**(`#@` 是注释),可直接 `gpuctl create -f`、可 git 管理、可手编。Docker 持久化 = `-v ./data:/app/data`(不挂载则自定义模板不跨容器重启,文档注明)。保存时若 YAML 为具体值(无令牌),自动**令牌化**(逐字段行级替换为 `__NAME__` 等)并提取表单默认值存入 `#@ gpu/cpu/memory/image`。
 
-> **原型阶段**:模板硬编码在 `src/webui/pages/quickstart.py` 的 `TEMPLATES` 列表,评审通过后迁移 ConfigMap + CRUD。
+实现:`src/console/template_store.py`(TemplateStore:合并视图 + CRUD + tokenize + 校验)、`src/webui/api_templates.py`(REST)。
 
 ## 5. 启动流(核心交互)
 
@@ -164,3 +162,5 @@ POST   /api/v1/jobs                   提交(gpuctl 现有端点,复用)
 ## 10. 评审记录
 
 - 2026-06-11:表单↔YAML 先做**单向**(联动 Phase 2);「另存为模板」进 MVP;API 先放 webui 层;新增「快速开始」一级菜单(本文档 §2),先出 UI 原型评审。
+- 2026-06-11:模板目录扩到 29(SkyPilot examples 全量对照,§3.1)。
+- 2026-06-12:**存储否决 ConfigMap 改本地文件**(§4):不侵入客户 K8s、安装保持一条 docker 命令。MVP 后端落地:TemplateStore + /api/v1/templates CRUD + 新建/复制/编辑/删除 UI + 任务详情「另存为模板」。

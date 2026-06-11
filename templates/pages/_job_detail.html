@@ -47,10 +47,14 @@
       <span class="badge badge-kind-{{ kind }}">{{ kind_label }}</span>
       <span class="badge badge-{{ status_tone }}">{{ status }}</span>
     </div>
-    {% if access and access.public_url %}
-      <a href="{{ access.public_url }}" target="_blank" rel="noopener"
-         class="btn btn-primary h-9 px-4 shrink-0">打开访问页面 ↗</a>
-    {% endif %}
+    <div class="flex items-center gap-2 shrink-0">
+      <a href="/quickstart/new?from_job={{ name }}&namespace={{ namespace }}"
+         class="btn btn-outline h-9 px-4" title="把当前任务的配置沉淀为可复用模板">另存为模板</a>
+      {% if access and access.public_url %}
+        <a href="{{ access.public_url }}" target="_blank" rel="noopener"
+           class="btn btn-primary h-9 px-4">打开访问页面 ↗</a>
+      {% endif %}
+    </div>
   </div>
 
   {# 概览：单张卡 + 多列 stat 网格（不再有挤成一条的窄卡） #}

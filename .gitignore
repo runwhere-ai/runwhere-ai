@@ -44,3 +44,6 @@ playwright-report/
 .kube-runw.yaml
 tools/k3s_proxy.py
 scripts/run-local.ps1
+
+# 平台运行期数据（自定义模板等；docker 挂 -v ./data:/app/data 持久化）
+data/
