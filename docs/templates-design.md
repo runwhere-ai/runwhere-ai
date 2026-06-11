@@ -44,7 +44,29 @@ runwhere.ai
 | builtin | 内置(随版本发布,只读,可复制)/ 自定义 |
 | tags | 如「CPU 可跑」「需 GPU」「分布式」 |
 
-**内置模板首批 7 个**:`notebook-jupyter`(CPU)、`notebook-jupyter-gpu`、`training-pytorch`(单机)、`training-pytorch-ddp`(多节点)、`inference-vllm`、`compute-web`(nginx)、`compute-batch`(数据处理)。无 GPU 集群给 `gpu:0` 变体可直接跑通 demo。
+**内置模板目录(17 个,以 SkyPilot examples/llm 库为蓝本;gpuctl 无 setup 阶段,全部选用现成公开镜像)**:
+
+| kind | 模板 | 镜像 | 标签 |
+|---|---|---|---|
+| notebook | jupyter | jupyter/minimal-notebook | CPU 可跑 |
+| notebook | jupyter-gpu | jupyter/pytorch-notebook | 需 GPU |
+| notebook | codeserver(浏览器 VS Code) | codercom/code-server | CPU 可跑 |
+| training | pytorch 单机 | pytorch/pytorch | 需 GPU |
+| training | pytorch-ddp(2 节点 torchrun) | pytorch/pytorch | 需 GPU·分布式 |
+| training | llamafactory(SFT/LoRA) | hiyouga/llamafactory | 需 GPU·LLM 微调 |
+| training | axolotl(配置驱动微调) | axolotlai/axolotl | 需 GPU·LLM 微调 |
+| training | demo-cpu(合成数据冒烟) | pytorch/pytorch | CPU 可跑·Demo |
+| training | gpucheck(CUDA vectorAdd 自检) | nvcr.io cuda-sample | 需 GPU·自检 |
+| inference | vllm | vllm/vllm-openai | 需 GPU·OpenAI API |
+| inference | sglang | lmsysorg/sglang | 需 GPU·OpenAI API |
+| inference | tgi | ghcr.io/huggingface/tgi | 需 GPU |
+| inference | ollama(自动拉 qwen2.5:0.5b) | ollama/ollama | CPU 可跑 |
+| inference | embeddings(TEI bge-small-zh) | ghcr.io/huggingface/tei:cpu | CPU 可跑·RAG |
+| compute | web(nginx) | nginx:alpine | CPU 可跑 |
+| compute | batch(Python) | python:3.11-slim | CPU 可跑 |
+| compute | redis | redis:alpine | CPU 可跑·中间件 |
+
+命名约束:启动页自动追加 4 位 hex 后缀,而 gpuctl 列表的名字简化启发式会把"第三段 ≥5 位字母数字"截断(§8),故模板名第三段须 <5 字符。无 GPU 集群可用 CPU 可跑 系列完整体验。Stable Diffusion / ComfyUI 因无官方维护镜像暂缓,Ray / NeMo / DeepSpeed 独立模板待 MVP 验证镜像后补。
 
 ## 4. 存储设计(目标态;原型阶段先硬编码)
 
