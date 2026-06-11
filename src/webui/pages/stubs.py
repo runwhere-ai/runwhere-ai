@@ -205,28 +205,28 @@ class _Page:
 _NOTEBOOKS = _Page(
     path="/notebooks", label="Notebook（开发调试）", title="Notebook",
     subtitle="3 分钟拉起 Jupyter，开箱即用的训练 / 数据探索环境。",
-    cta={"label": "新建 Notebook", "href": "/notebooks?new=1", "icon": "plus"},
+    cta={"label": "新建 Notebook", "href": "/quickstart?kind=notebook", "icon": "plus"},
     row_icon={"name": "book-open", "classes": _ICON_PINK},
     columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "notebook"),
 )
 _TRAININGS = _Page(
     path="/trainings", label="训练任务", title="训练任务",
     subtitle="表单 / YAML 双模式提交，实时日志与 dryRun 行号定位。",
-    cta={"label": "新建训练", "href": "/trainings?new=1", "icon": "rocket"},
+    cta={"label": "新建训练", "href": "/quickstart?kind=training", "icon": "rocket"},
     row_icon={"name": "rocket", "classes": _ICON_PURPLE},
     columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "training"),
 )
 _INFERENCES = _Page(
     path="/inferences", label="推理服务", title="推理服务",
     subtitle="HPA 自动扩缩，内置 Playground 调试与请求历史。",
-    cta={"label": "发布推理", "href": "/inferences?new=1", "icon": "zap"},
+    cta={"label": "发布推理", "href": "/quickstart?kind=inference", "icon": "zap"},
     row_icon={"name": "zap", "classes": _ICON_CYAN},
     columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "inference"),
 )
 _COMPUTES = _Page(
     path="/computes", label="计算服务", title="计算服务",
     subtitle="一次性 Job 或常驻 Deployment，通用容器作业入口。",
-    cta={"label": "新建任务", "href": "/computes?new=1", "icon": "cpu"},
+    cta={"label": "新建任务", "href": "/quickstart?kind=compute", "icon": "cpu"},
     row_icon={"name": "cpu", "classes": _ICON_TEAL},
     columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "compute"),
 )

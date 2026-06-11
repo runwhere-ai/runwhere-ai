@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}快速开始 · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">快速开始</span>{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-6" x-data="{ q: '' }">
+
+  {# Header #}
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">快速开始</h1>
+    <p class="mt-1 text-sm text-muted-foreground">
+      从模板出发,不写 YAML 也能 3 分钟提交第一个任务。选一个模板 → 改几个参数 → 提交。
+    </p>
+  </div>
+
+  {# Filter chips + search #}
+  <div class="flex flex-wrap items-center gap-2">
+    {% for k, label in kinds %}
+      <a href="/quickstart{% if k %}?kind={{ k }}{% endif %}"
+         class="btn h-8 px-3 text-sm {% if active_kind == k %}btn-primary{% else %}btn-outline{% endif %}">
+        {{ label }}
+      </a>
+    {% endfor %}
+    <div class="ml-auto">
+      <input type="search" x-model="q" placeholder="搜索模板…"
+             class="h-8 w-56 rounded-md border border-input bg-background px-3 text-sm placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring" />
+    </div>
+  </div>
+
+  {# Template cards #}
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    {% for c in cards %}
+    <div class="card flex flex-col p-5 hover:border-primary/40 transition-colors"
+         x-show="!q || $el.textContent.toLowerCase().includes(q.toLowerCase())">
+      <div class="flex items-start gap-3">
+        <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg {{ c.icon_cls }}">
+          {{ icon(c.icon, class="h-5 w-5") }}
+        </span>
+        <div class="min-w-0">
+          <div class="font-medium leading-snug">{{ c.display }}</div>
+          <div class="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <span class="badge badge-kind-{{ c.kind }}">{{ c.kind_label }}</span>
+            {% if c.builtin %}<span class="badge badge-neutral">内置</span>{% endif %}
+          </div>
+        </div>
+      </div>
+      <p class="mt-3 text-sm text-muted-foreground leading-relaxed flex-1">{{ c.description }}</p>
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        {% for tag in c.tags %}
+          <span class="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{{ tag }}</span>
+        {% endfor %}
+      </div>
+      <div class="mt-4 flex items-center gap-2">
+        <a href="/quickstart/{{ c.name }}" class="btn btn-primary h-8 px-3 flex-1 justify-center">
+          {{ icon("play", class="h-3.5 w-3.5") }} 从此模板启动
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {% if not cards %}
+  <div class="card p-12 text-center text-muted-foreground">该类型下暂无模板。</div>
+  {% endif %}
+
+  {# Footnote #}
+  <p class="text-xs text-muted-foreground">
+    原型说明:内置模板只读;「自定义模板 / 复制为新模板 / 从任务另存为模板」在 MVP 提供(见 docs/templates-design.md)。
+  </p>
+</div>
+{% endblock %}
