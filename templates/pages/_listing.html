@@ -75,6 +75,15 @@
                             {% if is_fail %}text-destructive font-medium
                             {% elif is_done %}text-emerald-600 dark:text-emerald-400 font-medium
                             {% else %}text-foreground{% endif %}">{{ lbl }}</span>
+                        {% elif cell.gpu %}
+                          {# 实时 GPU 进度条:由页面底部脚本按 (ns,pod) 轮询遥测填充 #}
+                          <div class="rw-gpu w-28" data-rw-gpu-ns="{{ cell.gpu.ns }}"
+                               data-rw-gpu-pod="{{ cell.gpu.pod }}" data-rw-gpu-metric="{{ cell.gpu.metric }}">
+                            <div class="text-[11px] text-muted-foreground mb-0.5 rw-gpu-label tabular-nums">—</div>
+                            <div class="h-1.5 rounded bg-muted overflow-hidden">
+                              <div class="rw-gpu-fill h-full bg-primary transition-all" style="width:0%"></div>
+                            </div>
+                          </div>
                         {% elif cell.title %}
                           <div class="flex flex-col">
                             {% if cell.href %}
@@ -127,4 +136,47 @@
   </div>
 
 </div>
+
+<script>
+  // 列表页 GPU 进度条:按 (ns,pod) 去重轮询遥测,一次 fetch 更新该 pod 的利用率+占用率两条。
+  // 数据由任务 sidecar 上报到 console 内存窗口(见 docs/sidecar-agent-design.md)。
+  (function () {
+    if (window.__rwGpuPoller) return;        // 防 HTMX 重渲染时重复挂 interval
+    window.__rwGpuPoller = true;
+    function memPct(u, t) { return (t > 0) ? Math.round(u / t * 100) : 0; }
+    async function tick() {
+      var els = document.querySelectorAll('.rw-gpu[data-rw-gpu-pod]');
+      if (!els.length) return;
+      var pods = {};
+      els.forEach(function (el) {
+        var key = el.dataset.rwGpuNs + ' ' + el.dataset.rwGpuPod;
+        (pods[key] = pods[key] || []).push(el);
+      });
+      await Promise.all(Object.keys(pods).map(async function (key) {
+        var p = key.split(' '), ns = p[0], pod = p[1];
+        try {
+          var r = await fetch('/api/v1/telemetry/' + encodeURIComponent(ns) + '/' + encodeURIComponent(pod));
+          if (!r.ok) return;
+          var d = await r.json();
+          pods[key].forEach(function (el) {
+            var fill = el.querySelector('.rw-gpu-fill'), label = el.querySelector('.rw-gpu-label');
+            if (!d.has_data) { label.textContent = '—'; fill.style.width = '0%'; return; }
+            var v, txt;
+            if (el.dataset.rwGpuMetric === 'util') {
+              v = Math.round(d.latest.gpu_util); txt = v + '%';
+            } else {
+              v = memPct(d.latest.mem_used, d.latest.mem_total);
+              txt = v + '% · ' + Math.round(d.latest.mem_used) + 'M';
+            }
+            fill.style.width = v + '%';
+            label.textContent = txt;
+            el.classList.toggle('opacity-40', !d.fresh);
+          });
+        } catch (e) {}
+      }));
+    }
+    tick();
+    setInterval(tick, 5000);
+  })();
+</script>
 {% endblock %}

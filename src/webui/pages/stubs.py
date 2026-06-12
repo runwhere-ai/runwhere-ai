@@ -52,6 +52,11 @@ def action(label: str, href: str, icon_name: str = "arrow-right") -> dict:
 def bar(pct: int, label: str | None = None) -> dict:
     return {"bar": pct, "label": label}
 
+def gpu_cell(namespace: str, pod: str, metric: str) -> dict:
+    """实时 GPU 进度条单元格。前端按 (ns, pod) 轮询 /api/v1/telemetry 填充。
+    metric: "util"(利用率) | "mem"(显存占用率)。数据来自任务 sidecar。"""
+    return {"gpu": {"ns": namespace, "pod": pod, "metric": metric}}
+
 
 # ── status → badge ────────────────────────────────────────────────────────────
 # StatusPalette keys are TitleCase k8s phases / reasons (Running, Pending, …).
@@ -102,6 +107,11 @@ _JOB_COLUMNS = [
     {"label": "IP",       "key": "ip"},
     {"label": "AGE",      "key": "age", "align": "right"},
 ]
+# GPU 列集:notebook / training / inference 用(compute 是 CPU,不展示)。
+_JOB_COLUMNS_GPU = _JOB_COLUMNS + [
+    {"label": "GPU 利用率", "key": "gpu_util"},
+    {"label": "GPU 占用率", "key": "gpu_mem"},
+]
 _POOL_COLUMNS = [
     {"label": "资源池名", "key": "name"},
     {"label": "状态",     "key": "status"},
@@ -142,8 +152,11 @@ async def _job_rows(kind: str) -> list[list[Any]]:
     from server.routes.jobs import get_jobs  # lazy: gpuctl `server` pkg
 
     resp = await get_jobs(kind=kind, pool=None, status=None, namespace=None, page=1, pageSize=200)
-    return [
-        [
+    # compute 是 CPU 任务,不加 GPU 列(列数须与所选 columns 对齐)。
+    want_gpu = kind != "compute"
+    rows: list[list[Any]] = []
+    for it in resp.items:
+        row = [
             m(it.jobId),
             link(it.name, f"/{kind}s/{it.name}?namespace={it.namespace}"),
             m(it.namespace),
@@ -153,8 +166,12 @@ async def _job_rows(kind: str) -> list[list[Any]]:
             _maybe_mono(it.ip),
             it.age,
         ]
-        for it in resp.items
-    ]
+        if want_gpu:
+            # it.jobId 即真实 pod 名(gpuctl: jobId=pod_name),遥测按 pod 存储。
+            row.append(gpu_cell(it.namespace, it.jobId, "util"))
+            row.append(gpu_cell(it.namespace, it.jobId, "mem"))
+        rows.append(row)
+    return rows
 
 
 async def _pool_rows() -> list[list[Any]]:
@@ -207,21 +224,21 @@ _NOTEBOOKS = _Page(
     subtitle="3 分钟拉起 Jupyter，开箱即用的训练 / 数据探索环境。",
     cta={"label": "新建 Notebook", "href": "/quickstart?kind=notebook", "icon": "plus"},
     row_icon={"name": "book-open", "classes": _ICON_PINK},
-    columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "notebook"),
+    columns=_JOB_COLUMNS_GPU, rows_fn=functools.partial(_job_rows, "notebook"),
 )
 _TRAININGS = _Page(
     path="/trainings", label="训练任务", title="训练任务",
     subtitle="表单 / YAML 双模式提交，实时日志与 dryRun 行号定位。",
     cta={"label": "新建训练", "href": "/quickstart?kind=training", "icon": "rocket"},
     row_icon={"name": "rocket", "classes": _ICON_PURPLE},
-    columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "training"),
+    columns=_JOB_COLUMNS_GPU, rows_fn=functools.partial(_job_rows, "training"),
 )
 _INFERENCES = _Page(
     path="/inferences", label="推理服务", title="推理服务",
     subtitle="HPA 自动扩缩，内置 Playground 调试与请求历史。",
     cta={"label": "发布推理", "href": "/quickstart?kind=inference", "icon": "zap"},
     row_icon={"name": "zap", "classes": _ICON_CYAN},
-    columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "inference"),
+    columns=_JOB_COLUMNS_GPU, rows_fn=functools.partial(_job_rows, "inference"),
 )
 _COMPUTES = _Page(
     path="/computes", label="计算服务", title="计算服务",
