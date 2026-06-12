@@ -38,6 +38,12 @@ async def ingest(sample: TelemetrySample) -> Response:
     return Response(status_code=204)
 
 
+@router.get("")
+async def get_all() -> dict:
+    """批量:一次返回所有 pod 的最新值。列表页轮询用,把 N 个请求压成 1 个。"""
+    return {"pods": STORE.get_all()}
+
+
 @router.get("/{namespace}/{pod}")
 async def get_pod(namespace: str, pod: str) -> dict:
     data = STORE.get_pod(namespace, pod)

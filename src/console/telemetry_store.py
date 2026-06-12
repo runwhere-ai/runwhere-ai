@@ -78,6 +78,23 @@ class TelemetryStore:
                 "series": series,
             }
 
+    def get_all(self) -> dict:
+        """所有 pod 的最新值(不含序列),供列表页一次性批量拉取。
+        返回 {"<ns>/<pod>": {gpu_util, mem_used, mem_total, gpu_index, job_type, fresh}}。"""
+        now = time.time()
+        out: Dict[str, dict] = {}
+        with self._lock:
+            for (ns, pod), s in self._data.items():
+                if not s.points:
+                    continue
+                latest = s.points[-1]
+                out[f"{ns}/{pod}"] = {
+                    "gpu_util": latest.gpu_util, "mem_used": latest.mem_used,
+                    "mem_total": latest.mem_total, "gpu_index": latest.gpu_index,
+                    "job_type": s.job_type, "fresh": (now - s.last_seen) < 30,
+                }
+        return out
+
     def prune(self) -> int:
         """清理过期 pod;返回清理数量。"""
         now = time.time()

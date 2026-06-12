@@ -147,33 +147,27 @@
     async function tick() {
       var els = document.querySelectorAll('.rw-gpu[data-rw-gpu-pod]');
       if (!els.length) return;
-      var pods = {};
+      var map;
+      try {
+        var r = await fetch('/api/v1/telemetry');
+        if (!r.ok) return;
+        map = (await r.json()).pods || {};
+      } catch (e) { return; }
       els.forEach(function (el) {
-        var key = el.dataset.rwGpuNs + ' ' + el.dataset.rwGpuPod;
-        (pods[key] = pods[key] || []).push(el);
+        var fill = el.querySelector('.rw-gpu-fill'), label = el.querySelector('.rw-gpu-label');
+        var d = map[el.dataset.rwGpuNs + '/' + el.dataset.rwGpuPod];
+        if (!d) { label.textContent = '—'; fill.style.width = '0%'; el.classList.remove('opacity-40'); return; }
+        var v, txt;
+        if (el.dataset.rwGpuMetric === 'util') {
+          v = Math.round(d.gpu_util); txt = v + '%';
+        } else {
+          v = (d.mem_total > 0) ? Math.round(d.mem_used / d.mem_total * 100) : 0;
+          txt = v + '% · ' + Math.round(d.mem_used) + 'M';
+        }
+        fill.style.width = v + '%';
+        label.textContent = txt;
+        el.classList.toggle('opacity-40', !d.fresh);
       });
-      await Promise.all(Object.keys(pods).map(async function (key) {
-        var p = key.split(' '), ns = p[0], pod = p[1];
-        try {
-          var r = await fetch('/api/v1/telemetry/' + encodeURIComponent(ns) + '/' + encodeURIComponent(pod));
-          if (!r.ok) return;
-          var d = await r.json();
-          pods[key].forEach(function (el) {
-            var fill = el.querySelector('.rw-gpu-fill'), label = el.querySelector('.rw-gpu-label');
-            if (!d.has_data) { label.textContent = '—'; fill.style.width = '0%'; return; }
-            var v, txt;
-            if (el.dataset.rwGpuMetric === 'util') {
-              v = Math.round(d.latest.gpu_util); txt = v + '%';
-            } else {
-              v = memPct(d.latest.mem_used, d.latest.mem_total);
-              txt = v + '% · ' + Math.round(d.latest.mem_used) + 'M';
-            }
-            fill.style.width = v + '%';
-            label.textContent = txt;
-            el.classList.toggle('opacity-40', !d.fresh);
-          });
-        } catch (e) {}
-      }));
     }
     tick();
     setInterval(tick, 5000);
