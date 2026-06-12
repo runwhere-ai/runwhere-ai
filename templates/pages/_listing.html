@@ -79,12 +79,13 @@
                           {# 实时 GPU 圆环仪表盘:由页面底部脚本按 (ns,pod) 批量轮询填充 #}
                           <div class="rw-gpu inline-flex" data-rw-gpu-ns="{{ cell.gpu.ns }}"
                                data-rw-gpu-pod="{{ cell.gpu.pod }}" data-rw-gpu-metric="{{ cell.gpu.metric }}">
-                            <svg viewBox="0 0 36 36" class="w-10 h-10">
-                              <path class="text-muted" stroke="currentColor" stroke-width="4" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                            <svg viewBox="0 0 40 24" class="w-12 h-7">
+                              <path class="text-muted" stroke="currentColor" stroke-width="4" fill="none"
+                                    stroke-linecap="round" pathLength="100" d="M 4 21 A 16 16 0 0 1 36 21"/>
                               <path class="rw-gpu-ring text-muted-foreground" stroke="currentColor" stroke-width="4"
-                                    fill="none" stroke-linecap="round" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                              <text class="rw-gpu-text fill-current" x="18" y="20.6" text-anchor="middle"
-                                    style="font-size:9px">—</text>
+                                    fill="none" stroke-linecap="round" pathLength="100" stroke-dasharray="0, 100" d="M 4 21 A 16 16 0 0 1 36 21"/>
+                              <text class="rw-gpu-text fill-current" x="20" y="19.5" text-anchor="middle"
+                                    style="font-size:8.5px">—</text>
                             </svg>
                           </div>
                         {% elif cell.title %}
