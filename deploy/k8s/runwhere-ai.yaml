@@ -59,6 +59,15 @@ spec:
               value: "false"           # 经 NodePort 以 http 访问
             - name: RWAI_LOG_LEVEL
               value: INFO
+            # ── 任务遥测 sidecar(P0a)──────────────────────────────────────────
+            # 设了 ENDPOINT,gpuctl builder 才给新建任务注入 native sidecar。
+            # 端点指向本 console Service;sidecar 在 default 命名空间跨 ns 上报。
+            - name: GPUCTL_TELEMETRY_ENDPOINT
+              value: http://runwhere-ai.runwhere-apps:8000/api/v1/telemetry
+            - name: GPUCTL_TELEMETRY_INTERVAL
+              value: "5"
+            - name: GPUCTL_TELEMETRY_NVIDIA_VISIBLE
+              value: "all"           # runw 单卡:设备级;生产多卡独占改为任务 GPU UUID
           readinessProbe:
             httpGet:
               path: /health

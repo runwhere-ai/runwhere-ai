@@ -30,9 +30,11 @@ def register_routes(app: FastAPI) -> None:
     from src.webui.pages.cluster_config import router as cluster_config_router
     from src.webui.pages.quickstart import router as quickstart_router
     from src.webui.api_templates import router as api_templates_router
+    from src.webui.api_telemetry import router as api_telemetry_router
     from src.webui.pages.stubs import router as stubs_router
 
     app.include_router(api_templates_router)
+    app.include_router(api_telemetry_router)
     app.include_router(auth_router)
     app.include_router(ws_events_router)
     app.include_router(dashboard_router)
