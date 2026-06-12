@@ -1,6 +1,7 @@
 {# Top bar — breadcrumb on left, namespace picker + conn status + theme toggle on right #}
 {% from "components/icon.html" import icon %}
 {% set current_ns = request.cookies.get('rwai_ns') %}
+{% set ns_list = available_namespaces() %}
 
 <header class="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background px-4">
 
@@ -12,40 +13,36 @@
   {# Right cluster #}
   <div class="flex items-center gap-2">
 
-    {# 全局命名空间选择器(命名空间 = 用户):选中后全局只看该 ns 资源 #}
-    <div class="relative" x-data="nsPicker({{ (current_ns or '') | tojson }})" @click.outside="open = false">
-      <button type="button" @click="toggle()"
-              class="btn-ghost btn h-8 gap-1.5 rounded-lg px-2.5 text-sm font-medium"
-              title="切换命名空间">
+    {# 全局命名空间选择器:选中后全局只看该命名空间的资源 #}
+    <div class="relative" x-data="{ open: false }" @click.outside="open = false" @keydown.escape="open = false">
+      <button type="button" @click="open = !open"
+              class="btn-ghost btn h-8 gap-1.5 rounded-lg px-2.5 text-sm font-medium">
         {{ icon("folder", class="h-4 w-4 text-muted-foreground") }}
-        <span class="max-w-[12rem] truncate" x-text="label"></span>
+        <span class="max-w-[12rem] truncate">{{ current_ns or "全部命名空间" }}</span>
         {{ icon("chevrons-up-down", class="h-3.5 w-3.5 text-muted-foreground") }}
       </button>
 
-      <div x-show="open" x-transition.opacity x-cloak
-           class="absolute right-0 top-full z-50 mt-1 w-60 rounded-lg border border-border bg-background p-1 shadow-lg">
-        <div class="px-2 py-1.5 text-xs text-muted-foreground">命名空间 = 工作区</div>
+      <div x-show="open" x-transition.opacity.duration.100ms x-cloak
+           class="absolute right-0 top-full z-50 mt-1.5 w-60 overflow-hidden rounded-lg border border-border bg-background py-1 shadow-lg">
 
         <a href="/set-namespace?next={{ request.url.path }}"
-           class="flex items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted"
-           :class="!current ? 'text-primary font-medium' : ''">
+           class="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted
+                  {{ 'text-primary font-medium' if not current_ns else '' }}">
           <span>全部命名空间</span>
-          <span x-show="!current">{{ icon("check", class="h-3.5 w-3.5") }}</span>
+          {% if not current_ns %}{{ icon("check", class="h-4 w-4") }}{% endif %}
         </a>
 
-        <div class="my-1 border-t border-border"></div>
+        {% if ns_list %}<div class="my-1 border-t border-border"></div>{% endif %}
 
         <div class="max-h-72 overflow-auto">
-          <template x-for="n in namespaces" :key="n">
-            <a :href="'/set-namespace?ns=' + encodeURIComponent(n) + '&next={{ request.url.path }}'"
-               class="flex items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted"
-               :class="n === current ? 'text-primary font-medium' : ''">
-              <span class="truncate" x-text="n"></span>
-              <span x-show="n === current">{{ icon("check", class="h-3.5 w-3.5") }}</span>
-            </a>
-          </template>
-          <div x-show="loaded && !namespaces.length" class="px-2.5 py-2 text-sm text-muted-foreground">暂无命名空间</div>
-          <div x-show="!loaded" class="px-2.5 py-2 text-sm text-muted-foreground">加载中…</div>
+          {% for n in ns_list %}
+          <a href="/set-namespace?ns={{ n }}&next={{ request.url.path }}"
+             class="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted
+                    {{ 'text-primary font-medium' if n == current_ns else '' }}">
+            <span class="truncate">{{ n }}</span>
+            {% if n == current_ns %}{{ icon("check", class="h-4 w-4") }}{% endif %}
+          </a>
+          {% endfor %}
         </div>
       </div>
     </div>
@@ -54,21 +51,3 @@
     {% include "components/theme_toggle.html" %}
   </div>
 </header>
-
-<script>
-  // 全局命名空间选择器:当前值来自 cookie(服务端注入),打开时拉 /api/namespaces 列表。
-  window.nsPicker = function (current) {
-    return {
-      open: false, loaded: false, namespaces: [], current: current || '',
-      get label() { return this.current ? this.current : '全部命名空间'; },
-      toggle() { this.open = !this.open; if (this.open && !this.loaded) this.load(); },
-      async load() {
-        try {
-          const r = await fetch('/api/namespaces');
-          if (r.ok) { const d = await r.json(); this.namespaces = d.namespaces || []; this.current = d.current || ''; }
-        } catch (e) {}
-        this.loaded = true;
-      },
-    };
-  };
-</script>
