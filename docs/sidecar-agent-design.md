@@ -142,7 +142,7 @@ Sidecar 怎么知道本任务的 UUID:
 
 ## 10. 建议路线(分期)
 
-1. **P0 — 遥测 Sidecar 原型**:gpuctl 注入 collector,采设备级 util + 经 downward API 打任务标签 → console 展示。runw 上验证"注入→采集→带标签上报"全链路(数值为整卡级,标注清楚)。
+1. **P0 — 遥测 Sidecar** ✅ 已落地(P0a 原型 + P0b Go 探针框架,见 §11)。gpuctl 注入 collector,采设备级 util + downward API 打任务标签 → console 内存窗口 → 详情页 live 展示。runw 全链路验证通过。
 2. **P1 — 空闲回收**(notebook):最高性价比的省钱功能;空闲检测 → 挂起/缩容到零。
 3. **P1 — inference metrics 抓取**:Sidecar 抓 vLLM/TGI `localhost/metrics` → 统一推理仪表盘。
 4. **P2 — hang 看门狗 + 抢占 checkpoint**:支撑竞价卡与僵尸治理。
@@ -152,6 +152,63 @@ Sidecar 怎么知道本任务的 UUID:
 
 ---
 
-## 11. 评审记录
+## 11. 实现记录(P0 — 遥测 Sidecar)
 
-- 2026-06-12 创建评审稿。先验证可行性(§3 runw 实测通过:无资源请求、非特权即可读设备级 util;per-process 受 WSL2 限制),再形成"DaemonSet 管卡/节点、Sidecar 管任务内部"的混合判断。待评审决定是否进入 P0 原型。
+P0 分两步落地,均在 runw 端到端验证通过。
+
+### 11.1 两步走:P0a 原型 → P0b 生产形态
+
+- **P0a(原型,bash)**:用 `nvidia/cuda` 基础镜像 + 纯 `bash`/`/dev/tcp` 上报,**零自建镜像**,最快打通"注入→采集→push→渲染"全链路。
+- **P0b(生产,Go)**:换成 `rw-telemetry-agent` —— 纯标准库 Go 静态二进制,结构为**探针框架**;bash 版保留为 `shell` 兜底模式。
+- 为什么先 bash 再 Go:先用最便宜的方式验证整套架构能产出价值,再投入硬化;agent 进每个 pod,运行期特性(体积/启动/内存)盖过开发速度,故正式版用 Go(详见 commit 说明与对话结论)。
+
+### 11.2 Go 探针框架(telemetry-agent/)
+
+```
+Probe 接口(Name / Collect)── gpuProbe(exec nvidia-smi 读设备级 util/显存)
+        │   多个 Probe 各自贡献字段
+        ▼
+   合并成一条 Sample ── reporter(net/http POST 到 console ingest)
+```
+
+- **可扩展**:后续 Tier B(jupyter 空闲、推理 `/metrics`、训练吞吐)只需新增一个 `Probe`,不再跟 bash 的 JSON/日期解析死磕。
+- **纯 stdlib、CGO 关 → 静态二进制**:丢进任何 glibc 镜像即跑,无解释器/无 pip/无联网装依赖。`nvidia-smi` 由 nvidia runtime 注入,不进镜像。
+- 文件:`gpuctl/telemetry-agent/{main.go,reporter.go,go.mod,Dockerfile}`。
+
+### 11.3 两种 agent 形态(`GPUCTL_TELEMETRY_MODE`)
+
+| mode | agent | 镜像 | 用途 |
+|---|---|---|---|
+| `binary`(默认) | Go `rw-telemetry-agent` | 自建小镜像(默认 debian-slim;runw 暂用缓存 cuda base 免拉取) | 生产形态、可扩展探针 |
+| `shell` | bash + `/dev/tcp` | `nvidia/cuda` 基础镜像 | 无需自建镜像的兜底/调试 |
+
+开关与配置(gpuctl 进程环境变量):`GPUCTL_TELEMETRY_ENDPOINT`(设置即开启,默认关闭)、`_MODE`、`_INTERVAL`、`_NVIDIA_VISIBLE`(runw=`all` 设备级;生产换任务 GPU UUID)、`_IMAGE`、`_RUNTIME_CLASS`(默认 `nvidia`)。
+
+### 11.4 关键工程决策
+
+- **native sidecar**:注入为 `initContainer` + `restartPolicy=Always`,主容器退出即随之终止,**不破坏 Job 完成语义**。按 k8s client 能力探测:支持则 native,老 client 退回普通 sidecar(对 Deployment/StatefulSet 安全)。
+- **不侵入默认行为**:不设 `GPUCTL_TELEMETRY_ENDPOINT` 则**零注入、零影响**。
+- **console 侧**:`POST /api/v1/telemetry` ingest(**免鉴权 + 免 CSRF**,集群内 sidecar 调用)→ 内存滚动窗口(`src/console/telemetry_store.py`,无 DB,惰性 TTL 清理);`GET /{ns}/{pod}` 供详情页轮询;详情页 `gpuTelemetry` Alpine 组件每 5s 刷新 util 条。
+
+### 11.5 落地验证(runw,2026-06-12 / 06-13)
+
+| 环节 | P0a(shell) | P0b(Go) |
+|---|---|---|
+| 注入 | ✅ native sidecar `rw-telemetry`,`runtimeClass=nvidia` | ✅ 镜像 `rw-telemetry-agent:dev`,`rp=Always` |
+| 采集 | ✅ nvidia-smi 设备级 | ✅ 同(Go exec) |
+| 上报 | ✅ bash `/dev/tcp` POST | ✅ `net/http` POST |
+| 存储 | ✅ console 内存窗口收到样本 | ✅ 同,序列累积 |
+| 渲染 | ✅ 详情页 live util 条 | ✅ 同 |
+
+### 11.6 诚实结论(决定 P0 收口)
+
+- **gpuctl GPU 模型 gap**:gpuctl 只设 `nvidia.com/gpu` 资源(device-plugin 模型),无 runtimeClass/env;runw 无 device-plugin(allocatable=0)→ gpuctl 的 `gpu>0` 任务在 runw 不可调度。sidecar 走 env 路径(`NVIDIA_VISIBLE_DEVICES`)不受此限。该 gap 待 gpuctl 侧另修。
+- **runw 只能给设备级**:WSL2 + 消费卡 per-process N/A;且整卡与 Windows 宿主共享,数值含宿主占用。真实**单任务**值需生产多卡独占(UUID 圈定),同一套代码只改 `_NVIDIA_VISIBLE`。
+- **为何 P0 收口、暂不在 runw 推 Tier B**:能在 runw 上诚实演示、且证明 sidecar 独有价值的 Tier B 功能稀缺 —— jupyter 空闲用 console 直连 Service 更合适(notebook 有 Service);GPU-util 空闲被共享卡的宿主占用掩盖。Tier B 的真实落地需生产硬件,届时探针框架直接加 Probe。
+
+---
+
+## 12. 评审记录
+
+- 2026-06-12 创建评审稿。先验证可行性(§3 runw 实测通过:无资源请求、非特权即可读设备级 util;per-process 受 WSL2 限制),再形成"DaemonSet 管卡/节点、Sidecar 管任务内部"的混合判断。
+- 2026-06-13 P0 落地并验收:P0a(bash 原型)→ P0b(Go 探针框架),runw 全链路通过(§11)。形成"P0 收口、Tier B 待生产硬件"的结论;Go vs Python 的取舍见 §11.1。分支 `feat/task-telemetry-sidecar`(gpuctl + runwhere-ai 各一)。
