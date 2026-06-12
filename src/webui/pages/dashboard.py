@@ -22,13 +22,16 @@ _ZERO = {
 }
 
 
-async def _dashboard_stats() -> dict:
-    """Aggregate live counts; degrade to zeros on any error (page must render)."""
+async def _dashboard_stats(namespace: str | None = None) -> dict:
+    """Aggregate live counts; degrade to zeros on any error (page must render).
+
+    namespace=None → 全部;否则按全局选中的命名空间过滤(命名空间=用户)。
+    """
     try:
         from server.routes.jobs import get_jobs
         from gpuctl.client.pool_client import PoolClient
 
-        resp = await get_jobs(kind=None, pool=None, status=None, namespace=None, page=1, pageSize=200)
+        resp = await get_jobs(kind=None, pool=None, status=None, namespace=namespace, page=1, pageSize=200)
         jobs = resp.items
         running = sum(1 for j in jobs if j.status == "Running")
 
@@ -42,7 +45,10 @@ async def _dashboard_stats() -> dict:
         # 真实 GPU 利用率 / 显存占用率:聚合任务 sidecar 上报的【设备级】遥测
         # (见 src/console/telemetry_store.py)。仅计 fresh 上报;无上报则 None → 前端显 —。
         from src.console.telemetry_store import STORE
-        fresh = [d for d in STORE.get_all().values() if d.get("fresh")]
+        tele = STORE.get_all()
+        if namespace:
+            tele = {k: v for k, v in tele.items() if k.split("/", 1)[0] == namespace}
+        fresh = [d for d in tele.values() if d.get("fresh")]
         if fresh:
             gpu_util_pct = round(sum(d["gpu_util"] for d in fresh) / len(fresh))
             mems = [d["mem_used"] / d["mem_total"] * 100 for d in fresh if d.get("mem_total")]
@@ -77,9 +83,11 @@ async def dashboard(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    stats = await _dashboard_stats()
+    from src.webui.pages.stubs import selected_namespace
+    ns = selected_namespace(request)
+    stats = await _dashboard_stats(ns)
     return templates.TemplateResponse(
         request,
         "pages/dashboard.html",
-        {"user": user, **stats},
+        {"user": user, "current_ns": ns, **stats},
     )

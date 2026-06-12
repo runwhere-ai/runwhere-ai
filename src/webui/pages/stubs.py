@@ -12,10 +12,19 @@ from __future__ import annotations
 import functools
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+
+# 全局命名空间筛选的 cookie 名(命名空间 = 用户:选中后全局只看该 ns 资源)
+NS_COOKIE = "rwai_ns"
+
+
+def selected_namespace(request: Request) -> Optional[str]:
+    """读取全局选中的命名空间;空/未选 → None(= 全部)。"""
+    ns = (request.cookies.get(NS_COOKIE) or "").strip()
+    return ns or None
 
 from src.console.models import User
 from src.console.status_palette import StatusPalette
@@ -148,11 +157,14 @@ _QUOTA_COLUMNS = [
 
 
 # ── row builders (live data) ──────────────────────────────────────────────────
-async def _job_rows(kind: str) -> list[list[Any]]:
-    """One row per pod for the given job kind, matching gpuctl get jobs."""
+async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any]]:
+    """One row per pod for the given job kind, matching gpuctl get jobs.
+
+    namespace=None → 全部命名空间;否则按全局选中的命名空间过滤(命名空间=用户)。
+    """
     from server.routes.jobs import get_jobs  # lazy: gpuctl `server` pkg
 
-    resp = await get_jobs(kind=kind, pool=None, status=None, namespace=None, page=1, pageSize=200)
+    resp = await get_jobs(kind=kind, pool=None, status=None, namespace=namespace, page=1, pageSize=200)
     # compute 是 CPU 任务,不加 GPU 列(列数须与所选 columns 对齐)。
     want_gpu = kind != "compute"
     rows: list[list[Any]] = []
@@ -178,7 +190,8 @@ async def _job_rows(kind: str) -> list[list[Any]]:
     return rows
 
 
-async def _pool_rows() -> list[list[Any]]:
+async def _pool_rows(namespace: Optional[str] = None) -> list[list[Any]]:
+    # 资源池 / 节点是集群级,不随命名空间过滤(忽略 namespace)。
     from gpuctl.client.pool_client import PoolClient
 
     pools = PoolClient.get_instance().list_pools()
@@ -195,7 +208,8 @@ async def _pool_rows() -> list[list[Any]]:
     ]
 
 
-async def _namespace_rows() -> list[list[Any]]:
+async def _namespace_rows(namespace: Optional[str] = None) -> list[list[Any]]:
+    # 命名空间管理页本身列出全部命名空间(不自我过滤)。
     from server.routes.namespaces import list_namespaces
 
     resp = await list_namespaces()
@@ -219,7 +233,7 @@ class _Page:
     subtitle: str
     cta: dict | None
     columns: list[dict]
-    rows_fn: Callable[[], Awaitable[list[list[Any]]]]
+    rows_fn: Callable[[Optional[str]], Awaitable[list[list[Any]]]]
     row_icon: dict | None = None
 
 
@@ -271,8 +285,9 @@ _ADMIN_PAGES = (_POOLS, _NAMESPACES)
 
 
 async def _render(request: Request, user: User, page: _Page):
+    ns = selected_namespace(request)
     try:
-        rows = await page.rows_fn()
+        rows = await page.rows_fn(ns)
     except Exception as exc:  # never 500 a full page render; show empty + log
         logger.warning("page %s: failed to load live data (%s)", page.path, exc)
         rows = []
@@ -287,8 +302,37 @@ async def _render(request: Request, user: User, page: _Page):
             "row_icon": page.row_icon,
             "columns": page.columns,
             "rows": rows,
+            "current_ns": ns,
         },
     )
+
+
+@router.get("/set-namespace", include_in_schema=False)
+async def set_namespace(request: Request, ns: str = "", next: str = "/dashboard",
+                        user: User = Depends(get_current_user)):
+    """设置全局命名空间筛选(写 cookie),跳回来源页。ns 为空 = 全部命名空间。"""
+    # next 只接受站内相对路径,避免开放重定向
+    target = next if next.startswith("/") and not next.startswith("//") else "/dashboard"
+    resp = RedirectResponse(target, status_code=303)
+    ns = (ns or "").strip()
+    if ns:
+        resp.set_cookie(NS_COOKIE, ns, max_age=31536000, samesite="lax", path="/")
+    else:
+        resp.delete_cookie(NS_COOKIE, path="/")
+    return resp
+
+
+@router.get("/api/namespaces", include_in_schema=False)
+async def api_namespaces(request: Request, user: User = Depends(get_current_user)):
+    """命名空间列表 + 当前选中,供顶栏选择器拉取。"""
+    names: list[str] = []
+    try:
+        from server.routes.namespaces import list_namespaces
+        resp = await list_namespaces()
+        names = [it["name"] for it in resp.get("items", []) if it.get("name")]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("api/namespaces failed: %s", exc)
+    return JSONResponse({"namespaces": names, "current": selected_namespace(request) or ""})
 
 
 def _user_handler(page: _Page):
