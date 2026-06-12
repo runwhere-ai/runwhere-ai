@@ -15,10 +15,11 @@
 
     {# 全局命名空间选择器:选中后全局只看该命名空间的资源 #}
     <div class="relative" x-data="{ open: false }" @click.outside="open = false" @keydown.escape="open = false">
-      <button type="button" @click="open = !open"
+      <button type="button" @click="open = !open" title="命名空间"
               class="btn-ghost btn h-8 gap-1.5 rounded-lg px-2.5 text-sm font-medium">
         {{ icon("folder", class="h-4 w-4 text-muted-foreground") }}
-        <span class="max-w-[12rem] truncate">{{ current_ns or "全部命名空间" }}</span>
+        <span class="text-xs text-muted-foreground">命名空间</span>
+        <span class="max-w-[10rem] truncate">{{ current_ns or "全部" }}</span>
         {{ icon("chevrons-up-down", class="h-3.5 w-3.5 text-muted-foreground") }}
       </button>
 
@@ -28,7 +29,7 @@
         <a href="/set-namespace?next={{ request.url.path }}"
            class="flex items-center justify-between px-3 py-2 text-sm hover:bg-muted
                   {{ 'text-primary font-medium' if not current_ns else '' }}">
-          <span>全部命名空间</span>
+          <span>全部</span>
           {% if not current_ns %}{{ icon("check", class="h-4 w-4") }}{% endif %}
         </a>
 
