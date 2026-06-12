@@ -79,13 +79,11 @@
       <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
         {{ icon("user-round", class="h-4 w-4") }}
       </span>
+      {# 命名空间 = 工作区:第二行反映顶栏选中的命名空间(选择后整页刷新即同步) #}
+      {% set current_ns = request.cookies.get('rwai_ns') %}
       <span class="flex min-w-0 flex-col text-left leading-tight">
         <span class="truncate text-sm font-medium">{{ user.display_name or user.subject }}</span>
-        {% if "*" in user.namespaces %}
-          <span class="truncate text-xs text-muted-foreground">全部 namespace</span>
-        {% elif user.namespaces %}
-          <span class="truncate text-xs text-muted-foreground">{{ user.namespaces[0] }}{% if user.namespaces|length > 1 %} +{{ user.namespaces|length - 1 }}{% endif %}</span>
-        {% endif %}
+        <span class="truncate text-xs text-muted-foreground">命名空间：{{ current_ns or "全部" }}</span>
       </span>
       <form method="post" action="/logout" class="ml-auto">
         <button type="submit"

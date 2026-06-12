@@ -108,6 +108,10 @@
       <h2 class="text-base font-medium">平台状态</h2>
       <ul class="mt-4 space-y-3 text-sm">
         <li class="flex items-center justify-between">
+          <span class="text-muted-foreground">当前命名空间</span>
+          <span class="badge badge-neutral">{{ current_ns or "全部" }}</span>
+        </li>
+        <li class="flex items-center justify-between">
           <span class="text-muted-foreground">实时同步</span>
           <span class="badge badge-running"><span class="conn-dot conn-online"></span>已连接</span>
         </li>
