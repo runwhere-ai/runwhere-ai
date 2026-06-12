@@ -329,12 +329,16 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
                priority=d.priority, resource_type=d.resource_type, events=d.events or [])
 
     # 镜像 / 命令 / 资源 来自重建的 gpuctl 规格(yaml_content)
+    # gpuctl mapper 对缺失字段会填字面量 "N/A",归一成 None 以便走 Pod spec 兜底
+    def _na(v):
+        return None if v in (None, "", "N/A") else v
+
     yc = d.yaml_content if isinstance(d.yaml_content, dict) else {}
     env = yc.get("environment") or {}
     res = yc.get("resources") or {}
-    ctx["image"] = env.get("image")
+    ctx["image"] = _na(env.get("image"))
     cmd = env.get("command")
-    ctx["command"] = cmd if isinstance(cmd, str) else (" ".join(map(str, cmd)) if isinstance(cmd, list) else None)
+    ctx["command"] = _na(cmd if isinstance(cmd, str) else (" ".join(map(str, cmd)) if isinstance(cmd, list) else None))
     ctx["resources"] = {"gpu": res.get("gpu", 0), "cpu": res.get("cpu", "—"),
                         "memory": res.get("memory", "—"), "pool": res.get("pool", d.pool)}
 
