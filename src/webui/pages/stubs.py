@@ -108,10 +108,11 @@ _JOB_COLUMNS = [
     {"label": "AGE",      "key": "age", "align": "right"},
 ]
 # GPU 列集:notebook / training / inference 用(compute 是 CPU,不展示)。
-_JOB_COLUMNS_GPU = _JOB_COLUMNS + [
+# 两列插在「状态」之后(_JOB_COLUMNS 索引 3=状态)。
+_JOB_COLUMNS_GPU = _JOB_COLUMNS[:4] + [
     {"label": "GPU 利用率", "key": "gpu_util"},
     {"label": "GPU 占用率", "key": "gpu_mem"},
-]
+] + _JOB_COLUMNS[4:]
 _POOL_COLUMNS = [
     {"label": "资源池名", "key": "name"},
     {"label": "状态",     "key": "status"},
@@ -168,8 +169,11 @@ async def _job_rows(kind: str) -> list[list[Any]]:
         ]
         if want_gpu:
             # it.jobId 即真实 pod 名(gpuctl: jobId=pod_name),遥测按 pod 存储。
-            row.append(gpu_cell(it.namespace, it.jobId, "util"))
-            row.append(gpu_cell(it.namespace, it.jobId, "mem"))
+            # 两列插在「状态」(索引 3)之后,与列定义一致。
+            row = row[:4] + [
+                gpu_cell(it.namespace, it.jobId, "util"),
+                gpu_cell(it.namespace, it.jobId, "mem"),
+            ] + row[4:]
         rows.append(row)
     return rows
 
