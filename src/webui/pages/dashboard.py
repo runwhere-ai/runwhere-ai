@@ -18,6 +18,7 @@ _ZERO = {
     "running_jobs": 0, "total_jobs": 0,
     "gpu_total": 0, "gpu_used": 0, "util_pct": 0,
     "node_count": 0, "pool_count": 0,
+    "gpu_util_pct": None, "gpu_mem_pct": None, "tele_n": 0,
 }
 
 
@@ -38,6 +39,17 @@ async def _dashboard_stats() -> dict:
         gpu_used = sum(p.get("gpu_used", 0) for p in pools)
         util = round(100 * gpu_used / gpu_total) if gpu_total else 0
 
+        # 真实 GPU 利用率 / 显存占用率:聚合任务 sidecar 上报的【设备级】遥测
+        # (见 src/console/telemetry_store.py)。仅计 fresh 上报;无上报则 None → 前端显 —。
+        from src.console.telemetry_store import STORE
+        fresh = [d for d in STORE.get_all().values() if d.get("fresh")]
+        if fresh:
+            gpu_util_pct = round(sum(d["gpu_util"] for d in fresh) / len(fresh))
+            mems = [d["mem_used"] / d["mem_total"] * 100 for d in fresh if d.get("mem_total")]
+            gpu_mem_pct = round(sum(mems) / len(mems)) if mems else None
+        else:
+            gpu_util_pct = gpu_mem_pct = None
+
         return {
             "running_jobs": running,
             "total_jobs": len(jobs),
@@ -46,6 +58,9 @@ async def _dashboard_stats() -> dict:
             "util_pct": util,
             "node_count": len(nodes),
             "pool_count": len(pools),
+            "gpu_util_pct": gpu_util_pct,
+            "gpu_mem_pct": gpu_mem_pct,
+            "tele_n": len(fresh),
         }
     except Exception as exc:  # noqa: BLE001 - dashboard must never 500
         logger.warning("dashboard stats failed: %s", exc)
