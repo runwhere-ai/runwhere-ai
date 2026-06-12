@@ -338,10 +338,12 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
     ctx["resources"] = {"gpu": res.get("gpu", 0), "cpu": res.get("cpu", "—"),
                         "memory": res.get("memory", "—"), "pool": res.get("pool", d.pool)}
 
-    # Pod 列表
+    # Pod 列表(+ 控制器规格缺字段时的兜底来源)
+    raw_pods: list = []
     try:
         from gpuctl.client.job_client import JobClient
-        for p in JobClient().list_pods(d.namespace, labels=_pod_selector(kind, name)):
+        raw_pods = JobClient().list_pods(d.namespace, labels=_pod_selector(kind, name))
+        for p in raw_pods:
             ctx["pods"].append({
                 "name": p.get("name"),
                 "phase": (p.get("status") or {}).get("phase", "Unknown"),
@@ -350,6 +352,24 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
             })
     except Exception as exc:
         logger.warning("list pods %s: %s", name, exc)
+
+    # 兜底:StatefulSet(notebook)等控制器的重建规格不含 containers
+    # (gpuctl _statefulset_to_dict 缺字段),镜像/命令/资源改从 Pod spec 取。
+    if raw_pods and (not ctx["image"] or not ctx["command"] or ctx["resources"].get("memory") in (None, "—")):
+        c0 = ((raw_pods[0].get("spec") or {}).get("containers") or [{}])[0]
+        if not ctx["image"]:
+            ctx["image"] = c0.get("image")
+        if not ctx["command"]:
+            cmd = list(c0.get("command") or []) + list(c0.get("args") or [])
+            ctx["command"] = " ".join(str(x) for x in cmd) if cmd else None
+        limits = ((c0.get("resources") or {}).get("limits") or {})
+        if limits and ctx["resources"].get("memory") in (None, "—"):
+            ctx["resources"] = {
+                "gpu": limits.get("nvidia.com/gpu", ctx["resources"].get("gpu", 0)),
+                "cpu": limits.get("cpu", ctx["resources"].get("cpu", "—")),
+                "memory": limits.get("memory", "—"),
+                "pool": ctx["resources"].get("pool", d.pool),
+            }
 
     # 访问方式(NodePort)——内网 IP 替换成对外 host(默认 Tailscale 100.97.8.55)
     npa = ((d.access_methods or {}).get("node_port_access") or {})
