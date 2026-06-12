@@ -51,8 +51,17 @@ def _available_namespaces() -> list:
     try:
         from gpuctl.client.quota_client import QuotaClient
         from gpuctl.constants import NS_LABEL_SELECTOR
-        res = QuotaClient().core_v1.list_namespace(label_selector=NS_LABEL_SELECTOR)
-        _ns_cache["names"] = sorted(ns.metadata.name for ns in res.items)
+        client = QuotaClient()
+        res = client.core_v1.list_namespace(label_selector=NS_LABEL_SELECTOR)
+        names = {ns.metadata.name for ns in res.items}
+        # 始终包含 default(与 server.routes.namespaces.list_namespaces 一致:
+        # default 没有 runwhere.ai/namespace 标签,但它是兜底工作区)。
+        try:
+            client.core_v1.read_namespace("default")
+            names.add("default")
+        except Exception:
+            pass
+        _ns_cache["names"] = sorted(names)
         _ns_cache["ts"] = now
     except Exception:  # noqa: BLE001 - 顶栏不能因列命名空间失败而崩
         pass
