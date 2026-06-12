@@ -76,13 +76,16 @@
                             {% elif is_done %}text-emerald-600 dark:text-emerald-400 font-medium
                             {% else %}text-foreground{% endif %}">{{ lbl }}</span>
                         {% elif cell.gpu %}
-                          {# 实时 GPU 进度条:由页面底部脚本按 (ns,pod) 轮询遥测填充 #}
-                          <div class="rw-gpu w-28" data-rw-gpu-ns="{{ cell.gpu.ns }}"
+                          {# 实时 GPU 圆环仪表盘:由页面底部脚本按 (ns,pod) 批量轮询填充 #}
+                          <div class="rw-gpu inline-flex" data-rw-gpu-ns="{{ cell.gpu.ns }}"
                                data-rw-gpu-pod="{{ cell.gpu.pod }}" data-rw-gpu-metric="{{ cell.gpu.metric }}">
-                            <div class="text-[11px] text-muted-foreground mb-0.5 rw-gpu-label tabular-nums">—</div>
-                            <div class="h-1.5 rounded bg-muted overflow-hidden">
-                              <div class="rw-gpu-fill h-full bg-primary transition-all" style="width:0%"></div>
-                            </div>
+                            <svg viewBox="0 0 36 36" class="w-10 h-10">
+                              <path class="text-muted" stroke="currentColor" stroke-width="4" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                              <path class="rw-gpu-ring text-muted-foreground" stroke="currentColor" stroke-width="4"
+                                    fill="none" stroke-linecap="round" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                              <text class="rw-gpu-text fill-current" x="18" y="20.6" text-anchor="middle"
+                                    style="font-size:9px">—</text>
+                            </svg>
                           </div>
                         {% elif cell.title %}
                           <div class="flex flex-col">
@@ -154,18 +157,18 @@
         map = (await r.json()).pods || {};
       } catch (e) { return; }
       els.forEach(function (el) {
-        var fill = el.querySelector('.rw-gpu-fill'), label = el.querySelector('.rw-gpu-label');
+        var ring = el.querySelector('.rw-gpu-ring'), text = el.querySelector('.rw-gpu-text');
         var d = map[el.dataset.rwGpuNs + '/' + el.dataset.rwGpuPod];
-        if (!d) { label.textContent = '—'; fill.style.width = '0%'; el.classList.remove('opacity-40'); return; }
-        var v, txt;
-        if (el.dataset.rwGpuMetric === 'util') {
-          v = Math.round(d.gpu_util); txt = v + '%';
-        } else {
-          v = (d.mem_total > 0) ? Math.round(d.mem_used / d.mem_total * 100) : 0;
-          txt = v + '% · ' + Math.round(d.mem_used) + 'M';
+        if (!d) {
+          text.textContent = '—'; ring.setAttribute('stroke-dasharray', '0, 100');
+          ring.setAttribute('class', 'rw-gpu-ring text-muted-foreground'); el.classList.remove('opacity-40'); return;
         }
-        fill.style.width = v + '%';
-        label.textContent = txt;
+        var v = (el.dataset.rwGpuMetric === 'util')
+          ? Math.round(d.gpu_util)
+          : ((d.mem_total > 0) ? Math.round(d.mem_used / d.mem_total * 100) : 0);
+        ring.setAttribute('stroke-dasharray', v + ', 100');
+        text.textContent = v + '%';
+        ring.setAttribute('class', 'rw-gpu-ring ' + (v >= 90 ? 'text-rose-500' : v >= 70 ? 'text-amber-500' : 'text-emerald-500'));
         el.classList.toggle('opacity-40', !d.fresh);
       });
     }
