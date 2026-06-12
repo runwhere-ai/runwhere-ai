@@ -91,5 +91,11 @@ class Config:
     templates_dir: str = "templates"
     static_dir: str = "static"
 
+    # ── Local data dir (custom task templates etc.) ──────────────────────────
+    # Platform-owned app data lives on the local filesystem (NOT in the managed
+    # K8s cluster): keeps install at "one docker command" (-v ./data:/app/data
+    # for persistence) and stays K8s-agnostic.
+    data_dir: str = field(default_factory=lambda: os.getenv("RWAI_DATA_DIR", "data"))
+
 
 CONFIG = Config()

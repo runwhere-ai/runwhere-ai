@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}{{ "编辑模板" if mode == "edit" else "新建模板" }} · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/quickstart" class="text-muted-foreground hover:text-foreground">快速开始</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <span class="text-foreground font-medium">{{ "编辑模板" if mode == "edit" else "新建模板" }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-5"
+     x-data='tplEdit({{ {"mode": mode, "name": name, "display": display, "description": description,
+                         "kind": kind, "tags": tags, "yaml": yaml} | tojson }})'>
+
+  <div class="flex items-center gap-3 flex-wrap">
+    <a href="/quickstart" class="btn btn-secondary h-9 px-4">返回</a>
+    <h1 class="text-xl font-semibold tracking-tight">
+      {{ "编辑模板:" + name if mode == "edit" else "新建模板" }}
+    </h1>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+    {# 左:元数据 #}
+    <div class="card p-5 lg:col-span-2 space-y-4 self-start">
+      <h2 class="text-base font-medium">模板信息</h2>
+
+      <div>
+        <label class="block text-xs text-muted-foreground mb-1">模板名(唯一,小写字母/数字/中划线)</label>
+        <input type="text" x-model="f.name" {% if mode == "edit" %}disabled{% endif %}
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50 disabled:opacity-60"
+               :class="nameOk ? '' : 'border-red-500 ring-1 ring-red-500/40'" />
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-muted-foreground mb-1">展示名</label>
+          <input type="text" x-model="f.display"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        </div>
+        <div>
+          <label class="block text-xs text-muted-foreground mb-1">任务类型</label>
+          <select x-model="f.kind"
+                  class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50">
+            {% for k, label in kind_options %}
+              <option value="{{ k }}">{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs text-muted-foreground mb-1">标签(逗号分隔,如:需 GPU,LLM 微调)</label>
+        <input type="text" x-model="f.tags"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50" />
+      </div>
+
+      <div>
+        <label class="block text-xs text-muted-foreground mb-1">描述(写明用途 / 适用人 / 前置要求)</label>
+        <textarea x-model="f.description" rows="3"
+                  class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50"></textarea>
+      </div>
+
+      <div class="pt-2 flex items-center gap-2">
+        <button type="button" class="btn btn-outline h-9 px-4" @click="validateYaml()" :disabled="busy">校验 YAML</button>
+        <button type="button" class="btn btn-primary h-9 px-4 flex-1 justify-center"
+                @click="save()" :disabled="busy || !nameOk">
+          <span x-text="busy ? '保存中…' : '保存模板'">保存模板</span>
+        </button>
+      </div>
+
+      <template x-if="result">
+        <div class="rounded-md p-3 text-sm"
+             :class="result.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'">
+          <span class="font-medium" x-text="(result.ok ? '✓ ' : '✗ ') + result.title"></span>
+          <pre class="mt-1 whitespace-pre-wrap break-all font-mono text-xs" x-show="result.detail" x-text="result.detail"></pre>
+        </div>
+      </template>
+
+      <p class="text-xs text-muted-foreground leading-relaxed">
+        YAML 推荐使用覆盖令牌(<span class="font-mono">__NAME__ __NAMESPACE__ __POOL__ __GPU__ __CPU__ __MEMORY__ __IMAGE__</span>),
+        启动页表单据此生成最终 YAML;若粘贴的是具体值,保存时会自动令牌化。
+        模板文件本身是合法 gpuctl YAML,也可直接 <span class="font-mono">gpuctl create -f</span> 使用。
+      </p>
+    </div>
+
+    {# 右:YAML #}
+    <div class="card overflow-hidden lg:col-span-3 flex flex-col self-start">
+      <div class="flex items-center justify-between gap-2 px-5 py-3 border-b border-border">
+        <h2 class="text-base font-medium">模板 YAML</h2>
+      </div>
+      <textarea x-model="f.yaml" spellcheck="false"
+                class="m-0 w-full flex-1 min-h-[34rem] resize-y px-5 py-4 text-xs leading-relaxed font-mono bg-zinc-950 text-zinc-100 focus:outline-none"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.tplEdit = function (init) {
+    return {
+      f: { name: init.name, display: init.display, description: init.description,
+           kind: init.kind, tags: init.tags, yaml: init.yaml },
+      mode: init.mode, busy: false, result: null,
+      get nameOk() { return /^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$/.test(this.f.name || ''); },
+      async validateYaml() {
+        this.busy = true; this.result = null;
+        try {
+          const r = await fetch('/quickstart/validate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yamlContent: this.f.yaml }),
+          });
+          const d = await r.json();
+          this.result = d.ok
+            ? { ok: true, title: `YAML 合法(kind=${d.kind})`, detail: '' }
+            : { ok: false, title: 'YAML 校验失败', detail: d.error };
+        } catch (e) {
+          this.result = { ok: false, title: '校验请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+      async save() {
+        this.busy = true; this.result = null;
+        const payload = {
+          display: this.f.display, description: this.f.description, kind: this.f.kind,
+          tags: this.f.tags.split(',').map(s => s.trim()).filter(Boolean),
+          yaml: this.f.yaml,
+        };
+        const url = this.mode === 'edit' ? `/api/v1/templates/${this.f.name}` : '/api/v1/templates';
+        const method = this.mode === 'edit' ? 'PUT' : 'POST';
+        if (this.mode !== 'edit') payload.name = this.f.name;
+        try {
+          const r = await fetch(url, {
+            method, headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const d = await r.json();
+          if (r.ok) {
+            this.result = { ok: true, title: '已保存,正在返回…', detail: '' };
+            setTimeout(() => { window.location = '/quickstart'; }, 600);
+          } else {
+            this.result = { ok: false, title: `保存失败(HTTP ${r.status})`, detail: d.detail || JSON.stringify(d) };
+          }
+        } catch (e) {
+          this.result = { ok: false, title: '保存请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+    };
+  };
+</script>
+{% endblock %}

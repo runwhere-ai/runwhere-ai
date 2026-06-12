@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}启动 · {{ tpl.display }} · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/quickstart" class="text-muted-foreground hover:text-foreground">快速开始</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <span class="text-foreground font-medium">{{ tpl.display }}</span>
+{% endblock %}
+
+{% macro fieldrow(label) %}
+  <div>
+    <label class="block text-xs text-muted-foreground mb-1">{{ label }}</label>
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{% block content %}
+{# 注意:tojson 输出含双引号,只能放进单引号 HTML 属性(Jinja htmlsafe_json_dumps 会把单引号转义为 ') #}
+<div class="mx-auto max-w-6xl space-y-5"
+     x-data='qsLaunch({{ tpl_yaml | tojson }}, {{ defaults | tojson }}, "{{ tpl.kind }}")'>
+
+  {# Header #}
+  <div class="flex items-center gap-3 flex-wrap">
+    <a href="/quickstart" class="btn btn-secondary h-9 px-4">返回</a>
+    <span class="flex h-9 w-9 items-center justify-center rounded-lg {{ tpl.icon_cls }}">
+      {{ icon(tpl.icon, class="h-4 w-4") }}
+    </span>
+    <h1 class="text-xl font-semibold tracking-tight">从模板启动:{{ tpl.display }}</h1>
+    <span class="badge badge-kind-{{ tpl.kind }}">{{ tpl.kind_label }}</span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+    {# 左:常用覆盖 #}
+    <div class="card p-5 lg:col-span-2 space-y-4 self-start">
+      <h2 class="text-base font-medium">常用覆盖</h2>
+
+      {% call fieldrow("任务名") %}
+        <input type="text" x-model="f.name"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50"
+               :class="nameOk ? '' : 'border-red-500 ring-1 ring-red-500/40'" />
+        <p class="mt-1 text-xs" :class="nameOk ? 'text-muted-foreground' : 'text-red-500'"
+           x-text="nameOk ? '小写字母/数字/中划线,已自动防撞名' : '需以字母开头,仅含小写字母、数字、中划线(≤40 字符)'"></p>
+      {% endcall %}
+
+      <div class="grid grid-cols-2 gap-3">
+        {% call fieldrow("命名空间") %}
+          <input type="text" x-model="f.namespace"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+        {% call fieldrow("资源池") %}
+          <input type="text" x-model="f.pool"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+      </div>
+
+      <div class="grid grid-cols-3 gap-3">
+        {% call fieldrow("GPU") %}
+          <input type="number" min="0" x-model="f.gpu"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+        {% call fieldrow("CPU") %}
+          <input type="number" min="1" x-model="f.cpu"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+        {% call fieldrow("内存") %}
+          <input type="text" x-model="f.memory"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+      </div>
+
+      {% call fieldrow("镜像") %}
+        <input type="text" x-model="f.image"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+      {% endcall %}
+
+      <div class="pt-2 flex items-center gap-2">
+        <button type="button" class="btn btn-outline h-9 px-4" @click="validateYaml()" :disabled="busy">
+          校验 YAML
+        </button>
+        <button type="button" class="btn btn-primary h-9 px-4 flex-1 justify-center"
+                @click="submitJob()" :disabled="busy || !nameOk">
+          {{ icon("rocket", class="h-4 w-4") }}
+          <span x-text="busy ? '提交中…' : '提交任务'">提交任务</span>
+        </button>
+      </div>
+
+      {# 校验 / 提交结果 #}
+      <template x-if="result">
+        <div class="rounded-md p-3 text-sm"
+             :class="result.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'">
+          <span class="font-medium" x-text="result.ok ? '✓ ' + result.title : '✗ ' + result.title"></span>
+          <pre class="mt-1 whitespace-pre-wrap break-all font-mono text-xs" x-show="result.detail" x-text="result.detail"></pre>
+        </div>
+      </template>
+
+      <p class="text-xs text-muted-foreground">
+        提交走与 CLI 相同的 <span class="font-mono">POST /api/v1/jobs</span>;成功后自动跳转任务详情页查看实时日志。
+      </p>
+    </div>
+
+    {# 右:YAML #}
+    <div class="card overflow-hidden lg:col-span-3 flex flex-col self-start">
+      <div class="flex items-center justify-between gap-2 px-5 py-3 border-b border-border">
+        <div class="flex items-center gap-2">
+          <h2 class="text-base font-medium">任务 YAML</h2>
+          <span class="badge badge-neutral" x-show="!manual">随表单同步</span>
+          <span class="badge badge-warning" x-show="manual">已手动编辑,表单不再同步</span>
+        </div>
+        <button type="button" class="btn btn-outline h-7 px-2 text-xs" x-show="manual"
+                @click="manual = false; regen()">重置为表单生成</button>
+      </div>
+      <textarea x-model="yamlText" @input="manual = true" spellcheck="false"
+                class="m-0 w-full flex-1 min-h-[34rem] resize-y px-5 py-4 text-xs leading-relaxed font-mono bg-zinc-950 text-zinc-100 focus:outline-none"></textarea>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 启动页交互:表单 → YAML 单向同步(令牌替换);手改 YAML 进入手动模式。
+  window.qsLaunch = function (tplYaml, defaults, kind) {
+    return {
+      f: { ...defaults }, yamlText: '', manual: false, busy: false, result: null,
+      init() {
+        this.regen();
+        for (const k of ['name', 'namespace', 'pool', 'gpu', 'cpu', 'memory', 'image']) {
+          this.$watch('f.' + k, () => { if (!this.manual) this.regen(); });
+        }
+      },
+      get nameOk() { return /^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$/.test(this.f.name || ''); },
+      regen() {
+        this.yamlText = tplYaml
+          .replaceAll('__NAME__', this.f.name)
+          .replaceAll('__NAMESPACE__', this.f.namespace)
+          .replaceAll('__POOL__', this.f.pool)
+          .replaceAll('__GPU__', String(this.f.gpu))
+          .replaceAll('__CPU__', String(this.f.cpu))
+          .replaceAll('__MEMORY__', this.f.memory)
+          .replaceAll('__IMAGE__', this.f.image);
+      },
+      async validateYaml() {
+        this.busy = true; this.result = null;
+        try {
+          const r = await fetch('/quickstart/validate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yamlContent: this.yamlText }),
+          });
+          const d = await r.json();
+          this.result = d.ok
+            ? { ok: true, title: `YAML 合法(kind=${d.kind})`, detail: '' }
+            : { ok: false, title: 'YAML 校验失败', detail: d.error };
+        } catch (e) {
+          this.result = { ok: false, title: '校验请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+      async submitJob() {
+        this.busy = true; this.result = null;
+        try {
+          const r = await fetch('/api/v1/jobs', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ yamlContent: this.yamlText, dryRun: false }),
+          });
+          const d = await r.json();
+          if (r.status === 201) {
+            this.result = { ok: true, title: `已提交:${d.name}(${d.kind}),正在跳转…`, detail: '' };
+            // gpuctl create 当前固定落 default 命名空间(design doc §8.2)
+            setTimeout(() => { window.location = `/${d.kind}s/${d.name}?namespace=default`; }, 800);
+          } else {
+            this.result = { ok: false, title: `提交失败(HTTP ${r.status})`, detail: d.detail || JSON.stringify(d) };
+          }
+        } catch (e) {
+          this.result = { ok: false, title: '提交请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+    };
+  };
+</script>
+{% endblock %}
