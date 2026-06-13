@@ -440,19 +440,36 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
                 "pool": ctx["resources"].get("pool", d.pool),
             }
 
-    # 访问方式(NodePort)——内网 IP 替换成对外 host(默认 Tailscale 100.97.8.55)
+    # 访问方式
     npa = ((d.access_methods or {}).get("node_port_access") or {})
-    if npa.get("node_port"):
-        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST", "100.97.8.55")
-        token = None
-        if kind == "notebook" and ctx["command"]:
-            mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", ctx["command"])
-            token = mt.group(1) if mt else None
+    if kind == "notebook":
+        # notebook 走 console 反向代理(/nb/<ns>/<name>/),不依赖 NodePort/portproxy。
+        # token 多源提取:命令行 / NOTEBOOK_ARGS / JUPYTER_TOKEN。
+        env_map = {}
+        for ev in (env.get("env") or []):
+            if isinstance(ev, dict):
+                if "name" in ev and "value" in ev:   # k8s 风格 {name,value}
+                    env_map[ev["name"]] = ev["value"]
+                else:                                  # gpuctl 风格 {key: value}
+                    env_map.update(ev)
+        search = " ".join(filter(None, [ctx["command"], env_map.get("NOTEBOOK_ARGS")]))
+        mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", search)
+        token = mt.group(1) if mt else env_map.get("JUPYTER_TOKEN")
         ctx["access"] = {
-            "public_url": f"http://{public_host}:{npa['node_port']}/" + (f"?token={token}" if token else ""),
+            "public_url": f"/nb/{d.namespace}/{name}/lab" + (f"?token={token}" if token else ""),
             "cluster_url": npa.get("url"),
             "node_port": npa.get("node_port"),
             "token": token,
+            "proxied": True,
+        }
+    elif npa.get("node_port"):
+        # inference/compute 暂保持 NodePort 直连(对外 host 默认 Tailscale 100.97.8.55)
+        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST", "100.97.8.55")
+        ctx["access"] = {
+            "public_url": f"http://{public_host}:{npa['node_port']}/",
+            "cluster_url": npa.get("url"),
+            "node_port": npa.get("node_port"),
+            "token": None,
         }
 
     # SSH / 进入容器(notebook 无原生 sshd → 给 kubectl exec 等价命令)

@@ -38,6 +38,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # 遥测 ingest 由集群内 sidecar 调用(非浏览器、无会话密钥)→ 免 CSRF
         if path.startswith("/api/v1/telemetry"):
             return await call_next(request)
+        # notebook 反向代理:jupyter 自带 XSRF 防护,透传即可 → 免 console CSRF
+        if path.startswith("/nb/"):
+            return await call_next(request)
 
         header_val = request.headers.get("X-CSRF-Token", "")
         cookie_val = request.cookies.get(CONFIG.csrf_cookie_name, "")
