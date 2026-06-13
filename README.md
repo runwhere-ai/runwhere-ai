@@ -47,6 +47,25 @@ runwhere-org/
 
 浏览器**永不直连 K8s**；UI 与 `/api/v1/*` 是同一进程内的平级兄弟路由，共享 Service 层（FR-115~119）。
 
+## 集群前提：GPU 资源统计 / 调度依赖 NVIDIA device plugin
+
+资源池（资源管理页）的 **GPU 总数 / 已用 / 空闲**，以及 GPU 任务的调度，完全基于 Kubernetes 标准资源,**不自建任何节点 agent**：
+
+```
+资源池 = 带 runwhere.ai/pool 标签的节点（无标签的归入 default 池）
+GPU 总数 = list 这些节点 → 求和 node.status.capacity["nvidia.com/gpu"]
+GPU 已用 = 汇总落在这些节点上的 Pod 的 requests["nvidia.com/gpu"]
+GPU 调度 = 任务声明 resources.gpu>0 → builder 设 nvidia.com/gpu 资源请求 → 调度器绑定
+```
+
+`nvidia.com/gpu` 这个资源由 **NVIDIA k8s device plugin** 在每个 GPU 节点上 advertise。因此：
+
+- **必须前提**：GPU 节点已安装 **NVIDIA driver + nvidia-container-toolkit + [NVIDIA k8s device plugin](https://github.com/NVIDIA/k8s-device-plugin)**（标准 GPU k8s 集群的常规组件）。
+- **未安装时**：节点 status 里没有 `nvidia.com/gpu`（或为 0）→ **资源池 GPU 数显示 0**，且 `gpu>0` 的任务无法被调度（Pending）。这属于**集群运维范畴**，平台**不代为安装** device plugin —— 以维持「装一个 docker、不侵入客户集群」的轻量原则。
+- **多厂商加速卡**（如华为 Ascend NPU）同理：由各自的 device plugin advertise（`huawei.com/Ascend910` 等），统计/调度逻辑相同，只是求和/请求的资源键不同。
+
+> WSL2 例外：标准 device plugin 在 WSL2 上数不到卡（WSL 用 `/dev/dxg`），仅用于本地 dev；生产真实 Linux 节点不受影响。
+
 ## 本地起 dev
 
 ```bash
