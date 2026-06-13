@@ -366,7 +366,7 @@ def _pod_selector(kind: str, name: str) -> dict:
     return {"job-name": name} if kind == "training" else {"app": name}
 
 
-async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
+async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Optional[str] = None) -> dict:
     import os
     import re
 
@@ -463,8 +463,10 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
             "proxied": True,
         }
     elif npa.get("node_port"):
-        # inference/compute 暂保持 NodePort 直连(对外 host 默认 Tailscale 100.97.8.55)
-        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST", "100.97.8.55")
+        # inference/compute 暂保持 NodePort 直连。对外 host 优先级:
+        #   显式配置 RWAI_PUBLIC_NODE_HOST > 用户访问控制台用的 Host(适配任意域名/IP/ingress)
+        #   > localhost。不再硬编码任何 runw/Tailscale 地址。
+        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST") or public_host or "localhost"
         ctx["access"] = {
             "public_url": f"http://{public_host}:{npa['node_port']}/",
             "cluster_url": npa.get("url"),
@@ -481,7 +483,8 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
 def _detail_handler(kind: str):
     async def _h(name: str, request: Request, namespace: str = "default",
                  user: User = Depends(get_current_user)):
-        ctx = await _job_detail_ctx(kind, name, namespace)
+        host = (request.headers.get("host") or "").split(":")[0] or None
+        ctx = await _job_detail_ctx(kind, name, namespace, public_host=host)
         return templates.TemplateResponse(request, "pages/_job_detail.html", {"user": user, **ctx})
     return _h
 

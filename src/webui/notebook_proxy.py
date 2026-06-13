@@ -16,8 +16,11 @@ import asyncio
 import logging
 
 import aiohttp
-from fastapi import APIRouter, Request, WebSocket
+from fastapi import APIRouter, Depends, Request, WebSocket
 from starlette.responses import Response
+
+from src.console.models import AuthError, User
+from src.webui.deps import get_auth_provider, get_current_user
 
 logger = logging.getLogger("src.webui.notebook_proxy")
 router = APIRouter(tags=["notebook-proxy"])
@@ -39,7 +42,11 @@ def _svc_host(name: str, namespace: str) -> str:
     "/nb/{namespace}/{name}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
 )
-async def proxy_http(namespace: str, name: str, path: str, request: Request):
+async def proxy_http(namespace: str, name: str, path: str, request: Request,
+                     _user: User = Depends(get_current_user)):
+    # 与全站一致的会话鉴权:平台(kubeconfig)模式恒返回固定身份 → no-op;
+    # 真实鉴权(bearer/oidc)模式下未登录则 401,堵住「代理绕过会话」的口子。
+    # notebook 自身的 jupyter token 仍是内层第二道防线。
     url = f"http://{_svc_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
     fwd = {k: v for k, v in request.headers.items() if k.lower() not in _HOP}
     body = await request.body()
@@ -64,6 +71,15 @@ async def proxy_http(namespace: str, name: str, path: str, request: Request):
 
 @router.websocket("/nb/{namespace}/{name}/{path:path}")
 async def proxy_ws(websocket: WebSocket, namespace: str, name: str, path: str):
+    # WS 无 Request,无法用 Depends(get_current_user);手动用 provider 校验。
+    # WebSocket 同为 Starlette HTTPConnection,provider 照样能读 cookie/session。
+    # 平台模式 no-op;真实鉴权模式未登录则在握手前以 1008 关闭。
+    try:
+        await get_auth_provider().authenticate(websocket)
+    except AuthError:
+        await websocket.close(code=1008)  # policy violation
+        return
+
     q = websocket.url.query
     ws_url = f"ws://{_svc_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
     if q:

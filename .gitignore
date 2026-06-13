@@ -43,6 +43,8 @@ playwright-report/
 # 本地连远端 k3s 的私有产物（含客户端私钥 + 机器相关脚本，勿提交）
 .kube-runw.yaml
 tools/k3s_proxy.py
+# 走 `ssh <host>` 的本地中继，机器/部署相关，非平台代码
+tools/notebook_tunnel.py
 scripts/run-local.ps1
 
 # 平台运行期数据（自定义模板等；docker 挂 -v ./data:/app/data 持久化）

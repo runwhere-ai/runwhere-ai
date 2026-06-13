@@ -68,6 +68,12 @@ spec:
               value: "5"
             - name: GPUCTL_TELEMETRY_NVIDIA_VISIBLE
               value: "all"           # runw 单卡:设备级;生产多卡独占改为任务 GPU UUID
+            # ── notebook 反向代理 base_url 前缀 ───────────────────────────────
+            # 设了它,gpuctl notebook builder 才给 notebook 注入 jupyter base_url,
+            # 使其能被 console 的 /nb/<ns>/<name>/ 反代打开。值须与 notebook_proxy
+            # 路由前缀一致。不设(默认)则 gpuctl 不改 notebook,走直连 NodePort。
+            - name: GPUCTL_NOTEBOOK_BASE_URL_PREFIX
+              value: /nb
           readinessProbe:
             httpGet:
               path: /health

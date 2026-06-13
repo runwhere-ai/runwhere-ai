@@ -13,6 +13,13 @@ services:
       # 上下文设为父目录，使镜像能同时拿到 runwhere-ai/ 与 gpuctl/。
       context: ..
       dockerfile: runwhere-ai/Dockerfile
+      # pip 源默认空 = 官方 PyPI；受限网络在构建前 export 这两个环境变量即切镜像源，
+      # 不写死进仓库。例：
+      #   PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+      #   PIP_TRUSTED_HOST=mirrors.aliyun.com docker compose build
+      args:
+        PIP_INDEX_URL: "${PIP_INDEX_URL:-}"
+        PIP_TRUSTED_HOST: "${PIP_TRUSTED_HOST:-}"
     image: runwhere-ai:latest
     container_name: runwhere-ai
 
