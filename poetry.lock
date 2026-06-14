@@ -828,8 +828,8 @@ dev = ["black (>=23.0.0)", "flake8 (>=6.0.0)", "pytest (>=7.0.0)"]
 [package.source]
 type = "git"
 url = "https://github.com/runwhere-ai/gpuctl.git"
-reference = "78f4910998ff7dee1bc8353e3523570f2c4531d1"
-resolved_reference = "78f4910998ff7dee1bc8353e3523570f2c4531d1"
+reference = "171b7830d74a4fa3c3a028caba177def7be0d7f2"
+resolved_reference = "171b7830d74a4fa3c3a028caba177def7be0d7f2"
 
 [[package]]
 name = "graphql-core"
@@ -3388,4 +3388,4 @@ dev = ["black", "httpx", "pytest", "pytest-asyncio", "pytest-cov", "pytest-playw
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "4b34efe23221757cc7b84e710532d610f9d1fa2a770c938318f0c7480efb2afd"
+content-hash = "7b3adf497c2131f7cf8d98c9e5ba894b13fab81a36f065454a9b34196565c151"

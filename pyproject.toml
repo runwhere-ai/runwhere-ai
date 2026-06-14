@@ -31,7 +31,7 @@ dependencies = [
     "python-dotenv>=0.21.0",
     # gpuctl —— 钉死到 git 提交,保证可复现 + 单独 clone 也能构建(三种模式见文末注释)。
     # 升级 gpuctl 新特性:把下面 @<sha> 换成新提交(合并后建议换成 tag),再 `poetry lock`。
-    "gpuctl @ git+https://github.com/runwhere-ai/gpuctl.git@78f4910998ff7dee1bc8353e3523570f2c4531d1",
+    "gpuctl @ git+https://github.com/runwhere-ai/gpuctl.git@171b7830d74a4fa3c3a028caba177def7be0d7f2",
 ]
 
 [project.optional-dependencies]
