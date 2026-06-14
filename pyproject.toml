@@ -29,6 +29,9 @@ dependencies = [
     "pydantic>=2.0",
     "PyYAML>=6.0",
     "python-dotenv>=0.21.0",
+    # gpuctl —— 钉死到 git 提交,保证可复现 + 单独 clone 也能构建(三种模式见文末注释)。
+    # 升级 gpuctl 新特性:把下面 @<sha> 换成新提交(合并后建议换成 tag),再 `poetry lock`。
+    "gpuctl @ git+https://github.com/runwhere-ai/gpuctl.git@78f4910998ff7dee1bc8353e3523570f2c4531d1",
 ]
 
 [project.optional-dependencies]
@@ -47,12 +50,24 @@ dev = [
 [project.scripts]
 runwhere-ai = "src.main:run"
 
-# ── 关键：以"开发模式"path 依赖引用同仓库内的 gpuctl ─────────────────────────
-# 让 runwhere-ai 持续享受 gpuctl 的迭代：编辑 gpuctl 源码即时生效，
-# 不需要 publish/install 新版本。
+# ── gpuctl 依赖的三种模式 ────────────────────────────────────────────────────
+# gpuctl 是独立仓库,本项目对它的引用按"场景"分三种,各司其职:
+#
+#   1) 可复现 / 单独 clone(默认,已生效):gpuctl 钉死在上面 [project].dependencies
+#      的 git 提交上,并写入 poetry.lock。`git clone runwhere-ai && poetry install`
+#      无需隔壁有 gpuctl 检出即可构建,版本不会漂移。
+#
+#   2) 本地共同开发(即时吃到 gpuctl 改动):跑服务时设 PYTHONPATH=../gpuctl
+#      (见 README 本地启动 / scripts/run-local.ps1)。PYTHONPATH 会盖过 venv 里装好的
+#      git 版 → 编辑 ../gpuctl 源码立即生效,无需 reinstall —— 等同旧的 develop 体验。
+#
+#   3) Docker 部署:Dockerfile 用 `pip install -e /app/gpuctl`(vendored 本地源码,
+#      由部署脚本与 runwhere-ai 一起打包),适配 runw 受限网络的离线构建,不从 git 拉。
+#
+# 升级 gpuctl 新特性的正道:gpuctl 合并/打 tag → 改上面那行 @<sha|tag> → `poetry lock`
+# → 提交 lock。这样"哪个 runwhere-ai 配哪个 gpuctl"被 lock 钉死、可追溯。
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
-gpuctl = { path = "../gpuctl", develop = true }
 
 [tool.black]
 line-length = 120
