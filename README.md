@@ -91,6 +91,25 @@ make dev
 > 例：`PYTHONPATH=../gpuctl KUBECONFIG=… poetry run uvicorn src.main:app --port 8000`。
 > Windows 无 `make`，可参考 `scripts/run-local.ps1`（同样要带 `PYTHONPATH`）。
 
+### 单独 clone / 可复现启动（不需要隔壁 gpuctl 源码）
+
+只想**跑**而非改 gpuctl（CI / 新机器 / 别人 clone）时走这条：gpuctl 由 `poetry install` 从 pyproject 钉死的 git 提交拉取（wheel 含 `gpuctl` + `server` 两个包），**无需 `../gpuctl` 检出、也不要设 `PYTHONPATH`**。
+
+```bash
+# 1) 装依赖：gpuctl 从 git 钉子装入 venv；--no-root 因本项目从源码运行、自身不作为包安装
+poetry install --no-root
+
+# 2) 静态资产：下载 Tailwind 并编译 CSS（见上「本地起 dev」；Windows 用 tools/tailwindcss.exe）
+./scripts/install-tailwind.sh
+poetry run tailwindcss -i static/css/runwhere.in.css -o static/css/tailwind.css --minify
+
+# 3) 启动 —— 关键：【不设 PYTHONPATH】，跑的是 lock 钉死、装进 venv 的 gpuctl
+KUBECONFIG=~/.kube/config poetry run uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+> 与上面 dev 模式的唯一区别：**不带 `PYTHONPATH=../gpuctl`** → 用的是 `poetry.lock` 钉死的 gpuctl，构建/运行可复现。
+> 升级 gpuctl 新特性：改 `pyproject.toml` 的 `gpuctl @ git+…@<sha\|tag>` → `poetry lock` → 重新 `poetry install`。
+
 打开 http://localhost:8000 → 直接进入控制台。默认 `RWAI_AUTH_PROVIDER=kubeconfig`：
 
 - 本地开发：读取当前 `KUBECONFIG` / `~/.kube/config`
