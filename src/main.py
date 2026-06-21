@@ -45,6 +45,14 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Application factory — used both by uvicorn and by tests."""
+    # GPU 指标采集默认开启:自动推导 sidecar 上报端点(集群内→Service / docker→本机节点 IP),
+    # 无需任何手动 env。必须在任何任务创建前设好 os.environ,供 gpuctl 注入 sidecar。
+    try:
+        from src.console.telemetry_autoconfig import configure_telemetry
+        configure_telemetry(CONFIG.port)
+    except Exception as exc:  # noqa: BLE001 — 采集是增强项,失败不应挡住启动
+        logger.warning("telemetry 自动配置失败(GPU 指标可能不显示): %s", exc)
+
     app = FastAPI(
         title="runwhere-ai",
         description="一体化 Web 控制台：Notebook · Training · Inference · Compute",

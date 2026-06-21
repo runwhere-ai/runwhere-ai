@@ -59,15 +59,10 @@ spec:
               value: "false"           # 经 NodePort 以 http 访问
             - name: RWAI_LOG_LEVEL
               value: INFO
-            # ── 任务遥测 sidecar(P0a)──────────────────────────────────────────
-            # 设了 ENDPOINT,gpuctl builder 才给新建任务注入 native sidecar。
-            # 端点指向本 console Service;sidecar 在 default 命名空间跨 ns 上报。
-            - name: GPUCTL_TELEMETRY_ENDPOINT
-              value: http://runwhere-ai.runwhere-apps:8000/api/v1/telemetry
-            - name: GPUCTL_TELEMETRY_INTERVAL
-              value: "5"
-            - name: GPUCTL_TELEMETRY_NVIDIA_VISIBLE
-              value: "all"           # runw 单卡:设备级;生产多卡独占改为任务 GPU UUID
+            # ── 任务 GPU 指标采集(默认开启,零配置)────────────────────────────
+            # console 启动时自动推导采集 sidecar 的上报端点:集群内自动用本 Service
+            # 地址(runwhere-ai.<ns>.svc),无需手填 GPUCTL_TELEMETRY_ENDPOINT。
+            # 仅 GPU 任务(gpu>0)注入 sidecar。见 src/console/telemetry_autoconfig.py。
             # ── notebook 反向代理 base_url 前缀 ───────────────────────────────
             # 设了它,gpuctl notebook builder 才给 notebook 注入 jupyter base_url,
             # 使其能被 console 的 /nb/<ns>/<name>/ 反代打开。值须与 notebook_proxy
