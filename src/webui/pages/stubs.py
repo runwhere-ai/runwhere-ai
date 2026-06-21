@@ -58,6 +58,29 @@ def link(title: str, href: str, sub: str | None = None) -> dict:
 def action(label: str, href: str, icon_name: str = "arrow-right") -> dict:
     return {"action": label, "href": href, "icon": icon_name}
 
+
+def _workload_name(kind: str, item_name: str) -> str:
+    """JobItem.name 是「简化后的 pod 名」,删除要的是工作负载名(Job/Deployment/StatefulSet)。
+
+    gpuctl delete_job(name) 按工作负载名删,而列表 name 各 kind 不一:
+    - training(Job): 简化已得干净名 → 直接用
+    - notebook(StatefulSet): name-<序号>(如 -0)→ 去尾段
+    - compute / inference(Deployment): name-<RS哈希> → 去尾段
+    (模板命名规则保证 job.name 第三段 <5 字符,不会被误剥;见 templates_builtin.py)
+    """
+    if kind == "training" or "-" not in item_name:
+        return item_name
+    return item_name.rsplit("-", 1)[0]
+
+
+def del_action(name: str, namespace: str) -> dict:
+    """删除按钮单元格(列表「操作」列)。前端确认后 fetch DELETE /api/v1/jobs。
+
+    key 用 delbtn 而非 del——del 是 Jinja 关键字,模板里 cell.del 会被解析成
+    Undefined 导致按钮渲染不出来(踩过)。
+    """
+    return {"delbtn": {"name": name, "namespace": namespace}}
+
 def bar(pct: int, label: str | None = None) -> dict:
     return {"bar": pct, "label": label}
 
@@ -115,6 +138,7 @@ _JOB_COLUMNS = [
     {"label": "节点",     "key": "node"},
     {"label": "IP",       "key": "ip"},
     {"label": "AGE",      "key": "age", "align": "right"},
+    {"label": "操作",     "key": "ops", "align": "right"},
 ]
 # GPU 列集:notebook / training / inference 用(compute 是 CPU,不展示)。
 # 两列插在「状态」之后(_JOB_COLUMNS 索引 3=状态)。
@@ -186,6 +210,9 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
                 gpu_cell(it.namespace, it.jobId, "util"),
                 gpu_cell(it.namespace, it.jobId, "mem"),
             ] + row[4:]
+        # 末尾「操作」列:删除按钮。用工作负载名(从简化 pod 名按 kind 推导),
+        # gpuctl delete_job 据此删 Job/Deployment/StatefulSet。
+        row.append(del_action(_workload_name(kind, it.name), it.namespace))
         rows.append(row)
     return rows
 
