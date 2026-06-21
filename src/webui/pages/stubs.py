@@ -193,9 +193,13 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
     want_gpu = kind != "compute"
     rows: list[list[Any]] = []
     for it in resp.items:
+        # 工作负载名(从简化 pod 名按 kind 推导):任务名称列显示它、详情页链接用它。
+        # 用 pod 名(it.name 对 notebook 是 name-0)进详情会让 _pod_selector(app=name)
+        # 匹配不到 pod → 详情页「暂无 Pod」+ GPU 利用率空(踩过)。
+        wl = _workload_name(kind, it.name)
         row = [
             m(it.jobId),
-            link(it.name, f"/{kind}s/{it.name}?namespace={it.namespace}"),
+            link(wl, f"/{kind}s/{wl}?namespace={it.namespace}"),
             m(it.namespace),
             status_badge(it.status),
             it.ready,
@@ -210,9 +214,8 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
                 gpu_cell(it.namespace, it.jobId, "util"),
                 gpu_cell(it.namespace, it.jobId, "mem"),
             ] + row[4:]
-        # 末尾「操作」列:删除按钮。用工作负载名(从简化 pod 名按 kind 推导),
-        # gpuctl delete_job 据此删 Job/Deployment/StatefulSet。
-        row.append(del_action(_workload_name(kind, it.name), it.namespace))
+        # 末尾「操作」列:删除按钮(同样用工作负载名 wl,gpuctl delete_job 据此删)。
+        row.append(del_action(wl, it.namespace))
         rows.append(row)
     return rows
 
