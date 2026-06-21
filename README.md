@@ -8,8 +8,13 @@
 
 ## 与 gpuctl 的关系
 
-runwhere-ai 是 **gpuctl 的 UI 层**，但作为**独立 Python 包**存在于 `../gpuctl` 同级。
-通过 Poetry path dependency（`develop = true`）引用，**gpuctl 主仓库的任何改动立即在 runwhere-ai 内生效**——不需要 publish 新版本或重新安装。
+runwhere-ai 是 **gpuctl 的 UI 层**，但 gpuctl 是**独立的 git 仓库 / Python 包**。对它的引用按场景分三种（权威说明见 `pyproject.toml` 里 `[tool.poetry.dependencies]` 上方注释）：
+
+1. **可复现 / 单独 clone（默认）**：`pyproject.toml` 把 gpuctl **钉死在某个 git 提交**（`gpuctl @ git+…@<sha>`）并写入 `poetry.lock`。`poetry install` 按该提交拉取 gpuctl —— 单独 clone 本仓库即可构建，版本不漂移。
+2. **本地共同开发（即时改 gpuctl）**：启动服务时设 `PYTHONPATH=../gpuctl`，Python 用隔壁的活源码盖过装好的钉死版 → 改 `../gpuctl` 立即生效，无需 reinstall（等同旧的 develop 体验）。
+3. **Docker 部署**：`Dockerfile` 用 `pip install -e` 安装 vendored 的本地 gpuctl 源码（离线、随 runwhere-ai 一起打包），不从 git 拉。
+
+> **升级 gpuctl 新特性的正道**：gpuctl 合并 / 打 tag → 改 `pyproject.toml` 那行的 `@<sha|tag>` → `poetry lock` → 提交 lock。这样「哪个 runwhere-ai 配哪个 gpuctl」被 lock 钉死、可追溯。
 
 ```
 runwhere-org/
@@ -47,10 +52,29 @@ runwhere-org/
 
 浏览器**永不直连 K8s**；UI 与 `/api/v1/*` 是同一进程内的平级兄弟路由，共享 Service 层（FR-115~119）。
 
+## 集群前提：GPU 资源统计 / 调度依赖 NVIDIA device plugin
+
+资源池（资源管理页）的 **GPU 总数 / 已用 / 空闲**，以及 GPU 任务的调度，完全基于 Kubernetes 标准资源,**不自建任何节点 agent**：
+
+```
+资源池 = 带 runwhere.ai/pool 标签的节点（无标签的归入 default 池）
+GPU 总数 = list 这些节点 → 求和 node.status.capacity["nvidia.com/gpu"]
+GPU 已用 = 汇总落在这些节点上的 Pod 的 requests["nvidia.com/gpu"]
+GPU 调度 = 任务声明 resources.gpu>0 → builder 设 nvidia.com/gpu 资源请求 → 调度器绑定
+```
+
+`nvidia.com/gpu` 这个资源由 **NVIDIA k8s device plugin** 在每个 GPU 节点上 advertise。因此：
+
+- **必须前提**：GPU 节点已安装 **NVIDIA driver + nvidia-container-toolkit + [NVIDIA k8s device plugin](https://github.com/NVIDIA/k8s-device-plugin)**（标准 GPU k8s 集群的常规组件）。
+- **未安装时**：节点 status 里没有 `nvidia.com/gpu`（或为 0）→ **资源池 GPU 数显示 0**，且 `gpu>0` 的任务无法被调度（Pending）。这属于**集群运维范畴**，平台**不代为安装** device plugin —— 以维持「装一个 docker、不侵入客户集群」的轻量原则。
+- **多厂商加速卡**（如华为 Ascend NPU）同理：由各自的 device plugin advertise（`huawei.com/Ascend910` 等），统计/调度逻辑相同，只是求和/请求的资源键不同。
+
+> WSL2 例外：标准 device plugin 在 WSL2 上数不到卡（WSL 用 `/dev/dxg`），仅用于本地 dev；生产真实 Linux 节点不受影响。
+
 ## 本地起 dev
 
 ```bash
-# 一次性安装（自动以 develop 模式安装 gpuctl）
+# 一次性安装依赖（gpuctl 按 pyproject 钉死的 git 提交拉取，写入 poetry.lock）
 poetry install
 
 # 安装 Playwright Chromium（E2E 测试）
@@ -62,6 +86,29 @@ poetry run playwright install chromium
 # 一键编译资产 + 启动开发服务器
 make dev
 ```
+
+> **想边改 gpuctl 边看效果**：启动时加 `PYTHONPATH=../gpuctl`（盖过 `poetry install` 装的钉死版，用隔壁活源码）。
+> 例：`PYTHONPATH=../gpuctl KUBECONFIG=… poetry run uvicorn src.main:app --port 8000`。
+> Windows 无 `make`，可参考 `scripts/run-local.ps1`（同样要带 `PYTHONPATH`）。
+
+### 单独 clone / 可复现启动（不需要隔壁 gpuctl 源码）
+
+只想**跑**而非改 gpuctl（CI / 新机器 / 别人 clone）时走这条：gpuctl 由 `poetry install` 从 pyproject 钉死的 git 提交拉取（wheel 含 `gpuctl` + `server` 两个包），**无需 `../gpuctl` 检出、也不要设 `PYTHONPATH`**。
+
+```bash
+# 1) 装依赖：gpuctl 从 git 钉子装入 venv；--no-root 因本项目从源码运行、自身不作为包安装
+poetry install --no-root
+
+# 2) 静态资产：下载 Tailwind 并编译 CSS（见上「本地起 dev」；Windows 用 tools/tailwindcss.exe）
+./scripts/install-tailwind.sh
+poetry run tailwindcss -i static/css/runwhere.in.css -o static/css/tailwind.css --minify
+
+# 3) 启动 —— 关键：【不设 PYTHONPATH】，跑的是 lock 钉死、装进 venv 的 gpuctl
+KUBECONFIG=~/.kube/config poetry run uvicorn src.main:app --host 0.0.0.0 --port 8000
+```
+
+> 与上面 dev 模式的唯一区别：**不带 `PYTHONPATH=../gpuctl`** → 用的是 `poetry.lock` 钉死的 gpuctl，构建/运行可复现。
+> 升级 gpuctl 新特性：改 `pyproject.toml` 的 `gpuctl @ git+…@<sha\|tag>` → `poetry lock` → 重新 `poetry install`。
 
 打开 http://localhost:8000 → 直接进入控制台。默认 `RWAI_AUTH_PROVIDER=kubeconfig`：
 

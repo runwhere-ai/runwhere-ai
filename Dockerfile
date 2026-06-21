@@ -12,12 +12,17 @@
 # 基础镜像用 3.11-slim（目标机已缓存），项目要求 Python >=3.10。
 FROM python:3.11-slim
 
-# pip 走可达的镜像源（受限网络下 pypi.org 不可达）。
+# pip 源：默认走官方 PyPI（国际用户 / 生产开箱即用）。
+# 受限网络（如中国大陆 CI）在构建时用 build-arg 切到镜像源，不写死进仓库：
+#   docker build --build-arg PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
+#                --build-arg PIP_TRUSTED_HOST=mirrors.aliyun.com ...
+ARG PIP_INDEX_URL=""
+ARG PIP_TRUSTED_HOST=""
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/ \
-    PIP_TRUSTED_HOST=mirrors.aliyun.com
+    PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 
 WORKDIR /app
 

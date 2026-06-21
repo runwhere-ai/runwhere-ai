@@ -35,9 +35,9 @@
   {# KPI tiles #}
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
     {{ metric("运行中任务", running_jobs, hint="共 " ~ total_jobs ~ " 个任务（含全部状态）") }}
-    {{ metric("GPU 利用率", (util_pct ~ "%") if gpu_total else "—", hint=(gpu_total ~ " GPU · 已用 " ~ gpu_used) if gpu_total else "暂无可调度 GPU 资源") }}
+    {{ metric("GPU 利用率", (gpu_util_pct ~ "%") if tele_n else "—", hint=("设备级 · 采样 " ~ tele_n ~ " 个运行任务") if tele_n else "暂无运行任务上报") }}
+    {{ metric("GPU 占用率", (gpu_mem_pct ~ "%") if (tele_n and gpu_mem_pct is not none) else "—", hint=("显存 · 采样 " ~ tele_n ~ " 个运行任务") if tele_n else "暂无运行任务上报") }}
     {{ metric("节点数", node_count, hint="集群物理节点") }}
-    {{ metric("资源池", pool_count, hint="已配置资源池") }}
   </div>
 
   {# Two-column lower section #}
@@ -107,6 +107,10 @@
     <div class="card p-5">
       <h2 class="text-base font-medium">平台状态</h2>
       <ul class="mt-4 space-y-3 text-sm">
+        <li class="flex items-center justify-between">
+          <span class="text-muted-foreground">当前命名空间</span>
+          <span class="badge badge-neutral">{{ current_ns or "全部" }}</span>
+        </li>
         <li class="flex items-center justify-between">
           <span class="text-muted-foreground">实时同步</span>
           <span class="badge badge-running"><span class="conn-dot conn-online"></span>已连接</span>

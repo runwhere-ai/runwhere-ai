@@ -12,10 +12,19 @@ from __future__ import annotations
 import functools
 import logging
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Optional
 
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+
+# 全局命名空间筛选的 cookie 名(命名空间 = 用户:选中后全局只看该 ns 资源)
+NS_COOKIE = "rwai_ns"
+
+
+def selected_namespace(request: Request) -> Optional[str]:
+    """读取全局选中的命名空间;空/未选 → None(= 全部)。"""
+    ns = (request.cookies.get(NS_COOKIE) or "").strip()
+    return ns or None
 
 from src.console.models import User
 from src.console.status_palette import StatusPalette
@@ -49,8 +58,37 @@ def link(title: str, href: str, sub: str | None = None) -> dict:
 def action(label: str, href: str, icon_name: str = "arrow-right") -> dict:
     return {"action": label, "href": href, "icon": icon_name}
 
+
+def _workload_name(kind: str, item_name: str) -> str:
+    """JobItem.name 是「简化后的 pod 名」,删除要的是工作负载名(Job/Deployment/StatefulSet)。
+
+    gpuctl delete_job(name) 按工作负载名删,而列表 name 各 kind 不一:
+    - training(Job): 简化已得干净名 → 直接用
+    - notebook(StatefulSet): name-<序号>(如 -0)→ 去尾段
+    - compute / inference(Deployment): name-<RS哈希> → 去尾段
+    (模板命名规则保证 job.name 第三段 <5 字符,不会被误剥;见 templates_builtin.py)
+    """
+    if kind == "training" or "-" not in item_name:
+        return item_name
+    return item_name.rsplit("-", 1)[0]
+
+
+def del_action(name: str, namespace: str, pod: str) -> dict:
+    """删除按钮单元格(列表「操作」列)。前端确认后 fetch DELETE /api/v1/jobs,
+    进入「删除中」并轮询 pod 是否从列表消失(真正删完)再移除该行。
+
+    key 用 delbtn 而非 del——del 是 Jinja 关键字,模板里 cell.del 会被解析成
+    Undefined 导致按钮渲染不出来(踩过)。
+    """
+    return {"delbtn": {"name": name, "namespace": namespace, "pod": pod}}
+
 def bar(pct: int, label: str | None = None) -> dict:
     return {"bar": pct, "label": label}
+
+def gpu_cell(namespace: str, pod: str, metric: str) -> dict:
+    """实时 GPU 进度条单元格。前端按 (ns, pod) 轮询 /api/v1/telemetry 填充。
+    metric: "util"(利用率) | "mem"(显存占用率)。数据来自任务 sidecar。"""
+    return {"gpu": {"ns": namespace, "pod": pod, "metric": metric}}
 
 
 # ── status → badge ────────────────────────────────────────────────────────────
@@ -101,7 +139,14 @@ _JOB_COLUMNS = [
     {"label": "节点",     "key": "node"},
     {"label": "IP",       "key": "ip"},
     {"label": "AGE",      "key": "age", "align": "right"},
+    {"label": "操作",     "key": "ops", "align": "right"},
 ]
+# GPU 列集:notebook / training / inference 用(compute 是 CPU,不展示)。
+# 两列插在「状态」之后(_JOB_COLUMNS 索引 3=状态)。
+_JOB_COLUMNS_GPU = _JOB_COLUMNS[:4] + [
+    {"label": "GPU 利用率", "key": "gpu_util"},
+    {"label": "GPU 占用率", "key": "gpu_mem"},
+] + _JOB_COLUMNS[4:]
 _POOL_COLUMNS = [
     {"label": "资源池名", "key": "name"},
     {"label": "状态",     "key": "status"},
@@ -137,15 +182,25 @@ _QUOTA_COLUMNS = [
 
 
 # ── row builders (live data) ──────────────────────────────────────────────────
-async def _job_rows(kind: str) -> list[list[Any]]:
-    """One row per pod for the given job kind, matching gpuctl get jobs."""
+async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any]]:
+    """One row per pod for the given job kind, matching gpuctl get jobs.
+
+    namespace=None → 全部命名空间;否则按全局选中的命名空间过滤(命名空间=用户)。
+    """
     from server.routes.jobs import get_jobs  # lazy: gpuctl `server` pkg
 
-    resp = await get_jobs(kind=kind, pool=None, status=None, namespace=None, page=1, pageSize=200)
-    return [
-        [
+    resp = await get_jobs(kind=kind, pool=None, status=None, namespace=namespace, page=1, pageSize=200)
+    # compute 是 CPU 任务,不加 GPU 列(列数须与所选 columns 对齐)。
+    want_gpu = kind != "compute"
+    rows: list[list[Any]] = []
+    for it in resp.items:
+        # 工作负载名(从简化 pod 名按 kind 推导):任务名称列显示它、详情页链接用它。
+        # 用 pod 名(it.name 对 notebook 是 name-0)进详情会让 _pod_selector(app=name)
+        # 匹配不到 pod → 详情页「暂无 Pod」+ GPU 利用率空(踩过)。
+        wl = _workload_name(kind, it.name)
+        row = [
             m(it.jobId),
-            link(it.name, f"/{kind}s/{it.name}?namespace={it.namespace}"),
+            link(wl, f"/{kind}s/{wl}?namespace={it.namespace}"),
             m(it.namespace),
             status_badge(it.status),
             it.ready,
@@ -153,11 +208,21 @@ async def _job_rows(kind: str) -> list[list[Any]]:
             _maybe_mono(it.ip),
             it.age,
         ]
-        for it in resp.items
-    ]
+        if want_gpu:
+            # it.jobId 即真实 pod 名(gpuctl: jobId=pod_name),遥测按 pod 存储。
+            # 两列插在「状态」(索引 3)之后,与列定义一致。
+            row = row[:4] + [
+                gpu_cell(it.namespace, it.jobId, "util"),
+                gpu_cell(it.namespace, it.jobId, "mem"),
+            ] + row[4:]
+        # 末尾「操作」列:删除按钮(工作负载名 wl 删,pod=it.jobId 用于轮询是否删完)。
+        row.append(del_action(wl, it.namespace, it.jobId))
+        rows.append(row)
+    return rows
 
 
-async def _pool_rows() -> list[list[Any]]:
+async def _pool_rows(namespace: Optional[str] = None) -> list[list[Any]]:
+    # 资源池 / 节点是集群级,不随命名空间过滤(忽略 namespace)。
     from gpuctl.client.pool_client import PoolClient
 
     pools = PoolClient.get_instance().list_pools()
@@ -174,7 +239,8 @@ async def _pool_rows() -> list[list[Any]]:
     ]
 
 
-async def _namespace_rows() -> list[list[Any]]:
+async def _namespace_rows(namespace: Optional[str] = None) -> list[list[Any]]:
+    # 命名空间管理页本身列出全部命名空间(不自我过滤)。
     from server.routes.namespaces import list_namespaces
 
     resp = await list_namespaces()
@@ -198,7 +264,7 @@ class _Page:
     subtitle: str
     cta: dict | None
     columns: list[dict]
-    rows_fn: Callable[[], Awaitable[list[list[Any]]]]
+    rows_fn: Callable[[Optional[str]], Awaitable[list[list[Any]]]]
     row_icon: dict | None = None
 
 
@@ -207,21 +273,21 @@ _NOTEBOOKS = _Page(
     subtitle="3 分钟拉起 Jupyter，开箱即用的训练 / 数据探索环境。",
     cta={"label": "新建 Notebook", "href": "/quickstart?kind=notebook", "icon": "plus"},
     row_icon={"name": "book-open", "classes": _ICON_PINK},
-    columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "notebook"),
+    columns=_JOB_COLUMNS_GPU, rows_fn=functools.partial(_job_rows, "notebook"),
 )
 _TRAININGS = _Page(
     path="/trainings", label="训练任务", title="训练任务",
     subtitle="表单 / YAML 双模式提交，实时日志与 dryRun 行号定位。",
     cta={"label": "新建训练", "href": "/quickstart?kind=training", "icon": "rocket"},
     row_icon={"name": "rocket", "classes": _ICON_PURPLE},
-    columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "training"),
+    columns=_JOB_COLUMNS_GPU, rows_fn=functools.partial(_job_rows, "training"),
 )
 _INFERENCES = _Page(
     path="/inferences", label="推理服务", title="推理服务",
     subtitle="HPA 自动扩缩，内置 Playground 调试与请求历史。",
     cta={"label": "发布推理", "href": "/quickstart?kind=inference", "icon": "zap"},
     row_icon={"name": "zap", "classes": _ICON_CYAN},
-    columns=_JOB_COLUMNS, rows_fn=functools.partial(_job_rows, "inference"),
+    columns=_JOB_COLUMNS_GPU, rows_fn=functools.partial(_job_rows, "inference"),
 )
 _COMPUTES = _Page(
     path="/computes", label="计算服务", title="计算服务",
@@ -250,8 +316,9 @@ _ADMIN_PAGES = (_POOLS, _NAMESPACES)
 
 
 async def _render(request: Request, user: User, page: _Page):
+    ns = selected_namespace(request)
     try:
-        rows = await page.rows_fn()
+        rows = await page.rows_fn(ns)
     except Exception as exc:  # never 500 a full page render; show empty + log
         logger.warning("page %s: failed to load live data (%s)", page.path, exc)
         rows = []
@@ -266,8 +333,37 @@ async def _render(request: Request, user: User, page: _Page):
             "row_icon": page.row_icon,
             "columns": page.columns,
             "rows": rows,
+            "current_ns": ns,
         },
     )
+
+
+@router.get("/set-namespace", include_in_schema=False)
+async def set_namespace(request: Request, ns: str = "", next: str = "/dashboard",
+                        user: User = Depends(get_current_user)):
+    """设置全局命名空间筛选(写 cookie),跳回来源页。ns 为空 = 全部命名空间。"""
+    # next 只接受站内相对路径,避免开放重定向
+    target = next if next.startswith("/") and not next.startswith("//") else "/dashboard"
+    resp = RedirectResponse(target, status_code=303)
+    ns = (ns or "").strip()
+    if ns:
+        resp.set_cookie(NS_COOKIE, ns, max_age=31536000, samesite="lax", path="/")
+    else:
+        resp.delete_cookie(NS_COOKIE, path="/")
+    return resp
+
+
+@router.get("/api/namespaces", include_in_schema=False)
+async def api_namespaces(request: Request, user: User = Depends(get_current_user)):
+    """命名空间列表 + 当前选中,供顶栏选择器拉取。"""
+    names: list[str] = []
+    try:
+        from server.routes.namespaces import list_namespaces
+        resp = await list_namespaces()
+        names = [it["name"] for it in resp.get("items", []) if it.get("name")]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("api/namespaces failed: %s", exc)
+    return JSONResponse({"namespaces": names, "current": selected_namespace(request) or ""})
 
 
 def _user_handler(page: _Page):
@@ -301,7 +397,7 @@ def _pod_selector(kind: str, name: str) -> dict:
     return {"job-name": name} if kind == "training" else {"app": name}
 
 
-async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
+async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Optional[str] = None) -> dict:
     import os
     import re
 
@@ -375,19 +471,38 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
                 "pool": ctx["resources"].get("pool", d.pool),
             }
 
-    # 访问方式(NodePort)——内网 IP 替换成对外 host(默认 Tailscale 100.97.8.55)
+    # 访问方式
     npa = ((d.access_methods or {}).get("node_port_access") or {})
-    if npa.get("node_port"):
-        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST", "100.97.8.55")
-        token = None
-        if kind == "notebook" and ctx["command"]:
-            mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", ctx["command"])
-            token = mt.group(1) if mt else None
+    if kind == "notebook":
+        # notebook 走 console 反向代理(/nb/<ns>/<name>/),不依赖 NodePort/portproxy。
+        # token 多源提取:命令行 / NOTEBOOK_ARGS / JUPYTER_TOKEN。
+        env_map = {}
+        for ev in (env.get("env") or []):
+            if isinstance(ev, dict):
+                if "name" in ev and "value" in ev:   # k8s 风格 {name,value}
+                    env_map[ev["name"]] = ev["value"]
+                else:                                  # gpuctl 风格 {key: value}
+                    env_map.update(ev)
+        search = " ".join(filter(None, [ctx["command"], env_map.get("NOTEBOOK_ARGS")]))
+        mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", search)
+        token = mt.group(1) if mt else env_map.get("JUPYTER_TOKEN")
         ctx["access"] = {
-            "public_url": f"http://{public_host}:{npa['node_port']}/" + (f"?token={token}" if token else ""),
+            "public_url": f"/nb/{d.namespace}/{name}/lab" + (f"?token={token}" if token else ""),
             "cluster_url": npa.get("url"),
             "node_port": npa.get("node_port"),
             "token": token,
+            "proxied": True,
+        }
+    elif npa.get("node_port"):
+        # inference/compute 暂保持 NodePort 直连。对外 host 优先级:
+        #   显式配置 RWAI_PUBLIC_NODE_HOST > 用户访问控制台用的 Host(适配任意域名/IP/ingress)
+        #   > localhost。不再硬编码任何特定节点地址。
+        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST") or public_host or "localhost"
+        ctx["access"] = {
+            "public_url": f"http://{public_host}:{npa['node_port']}/",
+            "cluster_url": npa.get("url"),
+            "node_port": npa.get("node_port"),
+            "token": None,
         }
 
     # SSH / 进入容器(notebook 无原生 sshd → 给 kubectl exec 等价命令)
@@ -399,7 +514,8 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str) -> dict:
 def _detail_handler(kind: str):
     async def _h(name: str, request: Request, namespace: str = "default",
                  user: User = Depends(get_current_user)):
-        ctx = await _job_detail_ctx(kind, name, namespace)
+        host = (request.headers.get("host") or "").split(":")[0] or None
+        ctx = await _job_detail_ctx(kind, name, namespace, public_host=host)
         return templates.TemplateResponse(request, "pages/_job_detail.html", {"user": user, **ctx})
     return _h
 

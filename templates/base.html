@@ -9,10 +9,12 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/static/css/tokens.css?v={{ asset_v }}" />
   <link rel="stylesheet" href="/static/css/tailwind.css?v={{ asset_v }}" />
+  <style>[x-cloak]{display:none!important}</style>
   <script src="/static/js/theme-toggle.js"></script>
   <script defer src="/static/js/htmx.min.js"></script>
   <script defer src="/static/js/htmx-ext-ws.min.js"></script>
   <script defer src="/static/js/alpine.min.js"></script>
+  <script defer src="/static/js/ui.js?v={{ asset_v }}"></script>
 </head>
 <body class="min-h-screen bg-background text-foreground"
       {% block ws_subscribe %}{% endblock %}>

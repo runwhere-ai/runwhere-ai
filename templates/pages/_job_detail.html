@@ -92,7 +92,7 @@
     <div class="space-y-4 text-sm">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <div class="text-muted-foreground text-xs mb-1">对外地址（Tailscale）</div>
+          <div class="text-muted-foreground text-xs mb-1">对外地址</div>
           <a href="{{ access.public_url }}" target="_blank" rel="noopener"
              class="font-mono text-xs text-primary hover:underline break-all">{{ access.public_url }}</a>
         </div>
@@ -131,6 +131,41 @@
     </div>
   </div>
   {% endif %}
+
+  {# GPU 利用率（实时，设备级；由 gpuctl 注入的任务 sidecar 采集） #}
+  <div class="card p-6" x-data='gpuTelemetry({{ namespace | tojson }}, {{ pods | map(attribute="name") | list | tojson }})'>
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="text-base font-medium">GPU 利用率（实时）</h2>
+      <span class="text-xs text-muted-foreground">设备级 · 每 5s · sidecar 采集</span>
+    </div>
+    {% if pods %}
+    <div class="space-y-3">
+      <template x-for="pod in pods" :key="pod">
+        <div>
+          <div class="flex items-center justify-between text-xs mb-1 gap-2">
+            <span class="font-mono break-all">{% raw %}<span x-text="pod"></span>{% endraw %}</span>
+            <span class="shrink-0">
+              <span class="text-muted-foreground" x-show="!rows[pod] || !rows[pod].has_data">等待采样…</span>
+              <span x-show="rows[pod] && rows[pod].has_data">
+                <span class="font-medium" x-text="(util(pod) ?? 0) + '%'"></span>
+                <span class="text-muted-foreground" x-show="mem(pod)"
+                      x-text="' · ' + Math.round((mem(pod)||{}).mem_used||0) + '/' + Math.round((mem(pod)||{}).mem_total||0) + ' MiB'"></span>
+                <span class="badge ml-1" :class="fresh(pod) ? 'badge-running' : 'badge-neutral'"
+                      x-text="fresh(pod) ? '● 实时' : '○ 滞后'"></span>
+              </span>
+            </span>
+          </div>
+          <div class="h-2 rounded bg-muted overflow-hidden">
+            <div class="h-full bg-primary transition-all" :style="'width:' + (util(pod) ?? 0) + '%'"></div>
+          </div>
+        </div>
+      </template>
+    </div>
+    <p class="text-xs text-muted-foreground mt-3">
+      注：runw（单卡 + 与宿主共享）显示的是整卡设备级利用率；生产多卡独占时即为本任务利用率。
+    </p>
+    {% else %}<div class="text-sm text-muted-foreground">暂无 Pod，无法采集。</div>{% endif %}
+  </div>
 
   {# Pods #}
   <div class="card p-6">
@@ -212,7 +247,7 @@
 </div>
 
 <script>
-  // 剪贴板复制：安全上下文用 navigator.clipboard，否则(如经 http://Tailscale 访问)回退 execCommand。
+  // 剪贴板复制：安全上下文用 navigator.clipboard，否则(如经 http 非安全上下文访问)回退 execCommand。
   window.rwCopy = function (text) {
     if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text); return; }
     var ta = document.createElement('textarea');
@@ -220,6 +255,27 @@
     document.body.appendChild(ta); ta.focus(); ta.select();
     try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
+  };
+
+  // GPU 遥测：轮询 /api/v1/telemetry/{ns}/{pod}，展示每个 pod 的设备级利用率。
+  // 数据由 gpuctl 注入的 native sidecar 上报到 console 内存窗口（见 sidecar-agent-design）。
+  window.gpuTelemetry = function (namespace, pods) {
+    return {
+      namespace: namespace, pods: pods || [], rows: {}, timer: null,
+      init() { this.tick(); this.timer = setInterval(() => this.tick(), 5000); },
+      destroy() { if (this.timer) clearInterval(this.timer); },
+      async tick() {
+        for (const pod of this.pods) {
+          try {
+            const r = await fetch('/api/v1/telemetry/' + encodeURIComponent(this.namespace) + '/' + encodeURIComponent(pod));
+            if (r.ok) this.rows[pod] = await r.json();
+          } catch (e) {}
+        }
+      },
+      util(pod) { const d = this.rows[pod]; return (d && d.has_data) ? d.latest.gpu_util : null; },
+      mem(pod)  { const d = this.rows[pod]; return (d && d.has_data) ? d.latest : null; },
+      fresh(pod){ const d = this.rows[pod]; return !!(d && d.fresh); },
+    };
   };
 
   // 日志查看器：WebSocket 实时流。正序=新日志追加到底部并自动滚底；

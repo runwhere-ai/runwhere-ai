@@ -75,6 +75,12 @@
                             {% if is_fail %}text-destructive font-medium
                             {% elif is_done %}text-emerald-600 dark:text-emerald-400 font-medium
                             {% else %}text-foreground{% endif %}">{{ lbl }}</span>
+                        {% elif cell.gpu %}
+                          {# 实时 GPU 热力数字:数字 + 背景色按档位,由底部脚本批量轮询填充 #}
+                          <span class="rw-gpu inline-flex items-center justify-center rounded-md text-xs font-medium tabular-nums"
+                                style="min-width:46px;height:22px"
+                                data-rw-gpu-ns="{{ cell.gpu.ns }}" data-rw-gpu-pod="{{ cell.gpu.pod }}"
+                                data-rw-gpu-metric="{{ cell.gpu.metric }}">—</span>
                         {% elif cell.title %}
                           <div class="flex flex-col">
                             {% if cell.href %}
@@ -86,6 +92,15 @@
                             {% endif %}
                             {% if cell.sub %}<span class="text-xs text-muted-foreground">{{ cell.sub }}</span>{% endif %}
                           </div>
+                        {% elif cell.delbtn %}
+                          <button type="button" title="删除" aria-label="删除"
+                                  onclick="rwDelete('{{ cell.delbtn.name }}','{{ cell.delbtn.namespace }}','{{ cell.delbtn.pod }}',this)"
+                                  class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background text-destructive hover:bg-muted transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                          </button>
                         {% elif cell.action %}
                           <a href="{{ cell.href }}" class="btn btn-outline h-8 px-2">
                             {% if cell.icon %}{{ icon(cell.icon, class="h-3.5 w-3.5") }}{% endif %}
@@ -127,4 +142,79 @@
   </div>
 
 </div>
+
+<script>
+  // 任务删除:确认弹层 → DELETE(优雅,不 force)→ 按钮进入「删除中」spinner,行保留 →
+  // 轮询任务列表,等该 pod 真正从列表消失(Terminating 结束)再移除该行 + toast。
+  // 这样删除中的状态由 k8s 真实 Terminating 驱动,不会出现「点了还在」。
+  window.rwDelete = async function (name, ns, pod, btn) {
+    var ok = await window.rwConfirm({
+      title: '删除任务', message: '确定删除任务「' + name + '」?此操作不可撤销。',
+      okText: '删除', danger: true,
+    });
+    if (!ok) return;
+
+    // 进入「删除中」:trash 图标换成 spinner,禁用,行保留。
+    var orig = btn.innerHTML;
+    function restore() { btn.innerHTML = orig; btn.disabled = false; btn.title = '删除'; btn.style.opacity = ''; }
+    btn.disabled = true; btn.title = '删除中…'; btn.style.opacity = '.7';
+    btn.innerHTML = '<span class="rw-spin"></span>';
+
+    try {
+      var r = await fetch('/api/v1/jobs/' + encodeURIComponent(name) + '?namespace=' + encodeURIComponent(ns), { method: 'DELETE' });
+      if (!r.ok) { window.rwToast('删除失败:HTTP ' + r.status, 'err'); restore(); return; }
+    } catch (e) { window.rwToast('删除失败:' + e, 'err'); restore(); return; }
+
+    // 轮询:pod 仍在列表 → 维持「删除中」;消失 → 真正删完,移除该行。
+    var tr = btn.closest('tr');
+    var deadline = Date.now() + 90000;
+    (function poll() {
+      fetch('/api/v1/jobs?namespace=' + encodeURIComponent(ns))
+        .then(function (resp) { return resp.ok ? resp.json() : null; })
+        .then(function (d) {
+          var items = d ? (Array.isArray(d) ? d : (d.items || [])) : [];
+          var still = items.some(function (it) { return it.jobId === pod || it.name === pod; });
+          if (!still) { if (tr) tr.remove(); window.rwToast('已删除「' + name + '」', 'ok'); return; }
+          if (Date.now() > deadline) { window.rwToast('删除处理较慢,请稍后刷新', 'info'); restore(); return; }
+          setTimeout(poll, 1500);
+        })
+        .catch(function () { setTimeout(poll, 2000); });
+    })();
+  };
+
+  // 列表页 GPU 进度条:按 (ns,pod) 去重轮询遥测,一次 fetch 更新该 pod 的利用率+占用率两条。
+  // 数据由任务 sidecar 上报到 console 内存窗口(见 docs/sidecar-agent-design.md)。
+  (function () {
+    if (window.__rwGpuPoller) return;        // 防 HTMX 重渲染时重复挂 interval
+    window.__rwGpuPoller = true;
+    function memPct(u, t) { return (t > 0) ? Math.round(u / t * 100) : 0; }
+    async function tick() {
+      var els = document.querySelectorAll('.rw-gpu[data-rw-gpu-pod]');
+      if (!els.length) return;
+      var map;
+      try {
+        var r = await fetch('/api/v1/telemetry');
+        if (!r.ok) return;
+        map = (await r.json()).pods || {};
+      } catch (e) { return; }
+      els.forEach(function (el) {
+        var d = map[el.dataset.rwGpuNs + '/' + el.dataset.rwGpuPod];
+        if (!d) {
+          el.textContent = '—'; el.style.color = ''; el.style.backgroundColor = '';
+          el.classList.remove('opacity-40'); return;
+        }
+        var v = (el.dataset.rwGpuMetric === 'util')
+          ? Math.round(d.gpu_util)
+          : ((d.mem_total > 0) ? Math.round(d.mem_used / d.mem_total * 100) : 0);
+        var c = v >= 90 ? '#f43f5e' : v >= 70 ? '#f59e0b' : '#10b981';
+        el.textContent = v + '%';
+        el.style.color = c;
+        el.style.backgroundColor = c + '26';
+        el.classList.toggle('opacity-40', !d.fresh);
+      });
+    }
+    tick();
+    setInterval(tick, 5000);
+  })();
+</script>
 {% endblock %}
