@@ -115,7 +115,7 @@ storage:
     Template(
         name="training-pytorch", display="PyTorch 单机训练", kind="training",
         description="单节点 PyTorch 训练。把 run 段替换成你的训练命令。",
-        tags=("需 GPU", "单机"), gpu=1, cpu=8, memory="32Gi",
+        tags=("需 GPU", "单机"), gpu=1, cpu=8, memory="24Gi",
         image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
         yaml="""kind: training
 version: v0.1
@@ -142,7 +142,7 @@ resources:
     Template(
         name="training-pytorch-ddp", display="PyTorch 分布式训练(DDP)", kind="training",
         description="2 节点 torchrun DDP;平台注入 MASTER_ADDR / RANK / WORLD_SIZE。",
-        tags=("需 GPU", "分布式"), gpu=2, cpu=8, memory="32Gi",
+        tags=("需 GPU", "分布式"), gpu=2, cpu=8, memory="24Gi",
         image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
         yaml="""kind: training
 version: v0.1
@@ -175,7 +175,7 @@ resources:
     Template(
         name="training-llamafactory", display="LLaMA-Factory 微调(SFT)", kind="training",
         description="零代码 LLM 微调:支持 LoRA/QLoRA/全参,改 model/dataset 即用。",
-        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
+        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="24Gi",
         image="hiyouga/llamafactory:0.9.4",
         yaml="""kind: training
 version: v0.1
@@ -209,7 +209,7 @@ storage:
     Template(
         name="training-axolotl", display="Axolotl 微调", kind="training",
         description="配置驱动的 LLM 微调框架(内置 DeepSpeed/FSDP)。挂载你的 config.yaml 即跑。",
-        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
+        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="24Gi",
         image="axolotlai/axolotl:main-latest",
         yaml="""kind: training
 version: v0.1
@@ -554,7 +554,7 @@ storage:
     Template(
         name="training-unsloth", display="Unsloth 微调", kind="training",
         description="2-5x 提速、省显存的 LLM 微调(LoRA/QLoRA),单卡即可调 7B。",
-        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="32Gi",
+        tags=("需 GPU", "LLM 微调"), gpu=1, cpu=8, memory="24Gi",
         image="unsloth/unsloth:latest",
         yaml="""kind: training
 version: v0.1
@@ -614,7 +614,7 @@ storage:
     Template(
         name="training-deepspeed", display="DeepSpeed 训练", kind="training",
         description="ZeRO 显存优化训练。运行时安装 deepspeed,替换启动命令即用。",
-        tags=("需 GPU", "分布式"), gpu=1, cpu=8, memory="32Gi",
+        tags=("需 GPU", "分布式"), gpu=1, cpu=8, memory="24Gi",
         image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
         yaml="""kind: training
 version: v0.1
@@ -769,7 +769,7 @@ storage:
     Template(
         name="inference-qwen", display="Qwen2.5-7B-Instruct", kind="inference",
         description="Qwen2.5-7B 指令模型推理(vLLM),建议 ≥24G 显存。",
-        tags=("需大显存", "模型预设"), gpu=1, cpu=8, memory="32Gi",
+        tags=("需大显存", "模型预设"), gpu=1, cpu=8, memory="24Gi",
         image="vllm/vllm-openai:latest",
         yaml="""kind: inference
 version: v0.1
