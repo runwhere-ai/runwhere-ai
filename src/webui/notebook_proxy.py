@@ -7,7 +7,7 @@
 notebook builder 经 NOTEBOOK_ARGS 注入),这样 jupyter 的内部链接/重定向/静态资源在
 前缀下都正确。WS(内核/终端)与 HTTP 走同一路径前缀。
 
-为什么这样:WSL2 + Tailscale + Windows 防火墙下逐个发布随机 NodePort 既脆又不可扩展;
+为什么这样:NAT/防火墙等网络环境下逐个发布随机 NodePort 既脆又不可扩展;
 反代让一切走已稳定发布的 console 端口,任何拓扑(含生产 ingress)通用。
 """
 from __future__ import annotations

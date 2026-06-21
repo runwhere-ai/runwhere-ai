@@ -92,7 +92,7 @@
     <div class="space-y-4 text-sm">
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <div class="text-muted-foreground text-xs mb-1">对外地址（Tailscale）</div>
+          <div class="text-muted-foreground text-xs mb-1">对外地址</div>
           <a href="{{ access.public_url }}" target="_blank" rel="noopener"
              class="font-mono text-xs text-primary hover:underline break-all">{{ access.public_url }}</a>
         </div>
@@ -247,7 +247,7 @@
 </div>
 
 <script>
-  // 剪贴板复制：安全上下文用 navigator.clipboard，否则(如经 http://Tailscale 访问)回退 execCommand。
+  // 剪贴板复制：安全上下文用 navigator.clipboard，否则(如经 http 非安全上下文访问)回退 execCommand。
   window.rwCopy = function (text) {
     if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(text); return; }
     var ta = document.createElement('textarea');

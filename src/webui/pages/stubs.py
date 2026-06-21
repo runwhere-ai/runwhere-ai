@@ -496,7 +496,7 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Opt
     elif npa.get("node_port"):
         # inference/compute 暂保持 NodePort 直连。对外 host 优先级:
         #   显式配置 RWAI_PUBLIC_NODE_HOST > 用户访问控制台用的 Host(适配任意域名/IP/ingress)
-        #   > localhost。不再硬编码任何 runw/Tailscale 地址。
+        #   > localhost。不再硬编码任何特定节点地址。
         public_host = os.getenv("RWAI_PUBLIC_NODE_HOST") or public_host or "localhost"
         ctx["access"] = {
             "public_url": f"http://{public_host}:{npa['node_port']}/",
