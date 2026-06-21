@@ -34,8 +34,53 @@ _HOP = {"connection", "keep-alive", "transfer-encoding", "te", "trailer",
 
 
 def _svc_host(name: str, namespace: str) -> str:
-    # gpuctl 的 notebook Service 名为 svc-<name>
+    # 集群内 DNS 名(回退用):console 跑在集群里(Pod)时可解析。gpuctl 的 notebook Service 名为 svc-<name>。
     return f"svc-{name}.{namespace}"
+
+
+# console 以宿主进程/docker 容器(host 网络)方式跑在集群【外】时,集群 DNS 名 svc-x.ns
+# 无法解析(宿主机不走 CoreDNS)→ 反代 502。改为用 k8s API 查 Service 的稳定 ClusterIP
+# (宿主机/host 网络容器可直连)。结果缓存;连接失败时失效重查(应对 notebook 删后重建
+# 导致 ClusterIP 变化)。集群内运行时该查询同样成功,故两种部署方式通用。
+_clusterip_cache: dict[tuple[str, str], str] = {}
+_clusterip_lock = asyncio.Lock()
+
+
+def _invalidate(name: str, namespace: str) -> None:
+    _clusterip_cache.pop((namespace, name), None)
+
+
+async def _resolve_clusterip(name: str, namespace: str) -> str | None:
+    key = (namespace, name)
+    ip = _clusterip_cache.get(key)
+    if ip:
+        return ip
+    async with _clusterip_lock:
+        ip = _clusterip_cache.get(key)
+        if ip:
+            return ip
+        try:
+            from kubernetes_asyncio import client  # type: ignore
+            from src.console.k8s_config import load_k8s_config
+            await load_k8s_config()
+            api = client.ApiClient()
+            try:
+                svc = await client.CoreV1Api(api).read_namespaced_service(f"svc-{name}", namespace)
+            finally:
+                await api.close()
+            ip = (getattr(svc.spec, "cluster_ip", None) or "").strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("resolve notebook clusterip %s/%s: %s", namespace, name, exc)
+            return None
+        if ip and ip.lower() not in ("none", ""):
+            _clusterip_cache[key] = ip
+            return ip
+        return None
+
+
+async def _upstream_host(name: str, namespace: str) -> str:
+    """优先 Service ClusterIP(集群外可直连);查不到再回退集群 DNS 名(集群内可用)。"""
+    return await _resolve_clusterip(name, namespace) or _svc_host(name, namespace)
 
 
 @router.api_route(
@@ -47,7 +92,7 @@ async def proxy_http(namespace: str, name: str, path: str, request: Request,
     # 与全站一致的会话鉴权:平台(kubeconfig)模式恒返回固定身份 → no-op;
     # 真实鉴权(bearer/oidc)模式下未登录则 401,堵住「代理绕过会话」的口子。
     # notebook 自身的 jupyter token 仍是内层第二道防线。
-    url = f"http://{_svc_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
+    url = f"http://{await _upstream_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
     fwd = {k: v for k, v in request.headers.items() if k.lower() not in _HOP}
     body = await request.body()
     timeout = aiohttp.ClientTimeout(total=60)
@@ -65,6 +110,7 @@ async def proxy_http(namespace: str, name: str, path: str, request: Request,
                                 headers=out_headers,
                                 media_type=resp.headers.get("Content-Type"))
     except aiohttp.ClientError as exc:
+        _invalidate(name, namespace)  # ClusterIP 可能因 notebook 重建而变,失效重查
         logger.warning("notebook proxy http %s/%s: %s", namespace, name, exc)
         return Response(content=b"notebook upstream unavailable", status_code=502)
 
@@ -81,7 +127,7 @@ async def proxy_ws(websocket: WebSocket, namespace: str, name: str, path: str):
         return
 
     q = websocket.url.query
-    ws_url = f"ws://{_svc_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
+    ws_url = f"ws://{await _upstream_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
     if q:
         ws_url += f"?{q}"
 
@@ -99,6 +145,7 @@ async def proxy_ws(websocket: WebSocket, namespace: str, name: str, path: str):
             heartbeat=None, max_msg_size=0, autoping=True,
         )
     except Exception as exc:  # noqa: BLE001
+        _invalidate(name, namespace)  # ClusterIP 可能因 notebook 重建而变,失效重查
         logger.warning("notebook proxy ws connect %s/%s: %s", namespace, name, exc)
         await session.close()
         await websocket.close(code=1011)
