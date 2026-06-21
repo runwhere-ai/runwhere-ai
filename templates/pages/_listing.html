@@ -93,10 +93,10 @@
                             {% if cell.sub %}<span class="text-xs text-muted-foreground">{{ cell.sub }}</span>{% endif %}
                           </div>
                         {% elif cell.delbtn %}
-                          <button type="button"
+                          <button type="button" title="删除" aria-label="删除"
                                   onclick="rwDelete('{{ cell.delbtn.name }}','{{ cell.delbtn.namespace }}',this)"
-                                  class="btn btn-outline h-8 px-2 text-destructive">
-                            {{ icon("trash", class="h-3.5 w-3.5") }} 删除
+                                  class="btn btn-outline h-8 w-8 px-0 text-destructive">
+                            {{ icon("trash", class="h-4 w-4") }}
                           </button>
                         {% elif cell.action %}
                           <a href="{{ cell.href }}" class="btn btn-outline h-8 px-2">
@@ -141,16 +141,20 @@
 </div>
 
 <script>
-  // 任务删除:确认 → fetch DELETE /api/v1/jobs(kubeconfig 平台模式免 CSRF)→ 刷新列表。
+  // 任务删除:自定义确认弹层 → fetch DELETE /api/v1/jobs(kubeconfig 平台模式免 CSRF)→ toast → 刷新。
   window.rwDelete = async function (name, ns, btn) {
-    if (!confirm('确定删除任务「' + name + '」?此操作不可撤销。')) return;
-    var html = btn.innerHTML; btn.disabled = true; btn.textContent = '删除中…';
+    var ok = await window.rwConfirm({
+      title: '删除任务', message: '确定删除任务「' + name + '」?此操作不可撤销。',
+      okText: '删除', danger: true,
+    });
+    if (!ok) return;
+    var html = btn.innerHTML; btn.disabled = true; btn.style.opacity = '.5';
     try {
       var r = await fetch('/api/v1/jobs/' + encodeURIComponent(name) + '?namespace=' + encodeURIComponent(ns), { method: 'DELETE' });
-      if (r.ok) { location.reload(); return; }
-      alert('删除失败:HTTP ' + r.status);
-    } catch (e) { alert('删除失败:' + e); }
-    btn.disabled = false; btn.innerHTML = html;
+      if (r.ok) { window.rwToast('已删除「' + name + '」', 'ok'); setTimeout(function () { location.reload(); }, 700); return; }
+      window.rwToast('删除失败:HTTP ' + r.status, 'err');
+    } catch (e) { window.rwToast('删除失败:' + e, 'err'); }
+    btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = html;
   };
 
   // 列表页 GPU 进度条:按 (ns,pod) 去重轮询遥测,一次 fetch 更新该 pod 的利用率+占用率两条。
