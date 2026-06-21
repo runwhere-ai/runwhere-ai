@@ -59,20 +59,6 @@ def action(label: str, href: str, icon_name: str = "arrow-right") -> dict:
     return {"action": label, "href": href, "icon": icon_name}
 
 
-def _workload_name(kind: str, item_name: str) -> str:
-    """JobItem.name 是「简化后的 pod 名」,删除要的是工作负载名(Job/Deployment/StatefulSet)。
-
-    gpuctl delete_job(name) 按工作负载名删,而列表 name 各 kind 不一:
-    - training(Job): 简化已得干净名 → 直接用
-    - notebook(StatefulSet): name-<序号>(如 -0)→ 去尾段
-    - compute / inference(Deployment): name-<RS哈希> → 去尾段
-    (模板命名规则保证 job.name 第三段 <5 字符,不会被误剥;见 templates_builtin.py)
-    """
-    if kind == "training" or "-" not in item_name:
-        return item_name
-    return item_name.rsplit("-", 1)[0]
-
-
 def del_action(name: str, namespace: str, pod: str) -> dict:
     """删除按钮单元格(列表「操作」列)。前端确认后 fetch DELETE /api/v1/jobs,
     进入「删除中」并轮询 pod 是否从列表消失(真正删完)再移除该行。
@@ -194,10 +180,10 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
     want_gpu = kind != "compute"
     rows: list[list[Any]] = []
     for it in resp.items:
-        # 工作负载名(从简化 pod 名按 kind 推导):任务名称列显示它、详情页链接用它。
-        # 用 pod 名(it.name 对 notebook 是 name-0)进详情会让 _pod_selector(app=name)
-        # 匹配不到 pod → 详情页「暂无 Pod」+ GPU 利用率空(踩过)。
-        wl = _workload_name(kind, it.name)
+        # it.name 现在就是真实作业名(gpuctl 路由从 pod 标签 app/job-name 读,= YAML
+        # job.name = 工作负载名),直接用:任务名称列显示它、详情页链接用它、删除按它删。
+        # (旧版 name 是 pod 名的启发式切割,要再 _workload_name 二次推导;已不需要。)
+        wl = it.name
         row = [
             m(it.jobId),
             link(wl, f"/{kind}s/{wl}?namespace={it.namespace}"),
