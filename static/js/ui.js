@@ -26,7 +26,10 @@
     + 'border:1px solid transparent;}'
     + '.rw-btn-ghost{background:transparent;border-color:var(--border,#e5e7eb);color:var(--foreground,#111);}'
     + '.rw-btn-primary{background:var(--primary,#2563eb);color:var(--primary-foreground,#fff);}'
-    + '.rw-btn-danger{background:var(--destructive,#ef4444);color:var(--destructive-foreground,#fff);}';
+    + '.rw-btn-danger{background:var(--destructive,#ef4444);color:var(--destructive-foreground,#fff);}'
+    + '.rw-spin{display:inline-block;width:16px;height:16px;border:2px solid currentColor;'
+    + 'border-right-color:transparent;border-radius:50%;animation:rw-rot .6s linear infinite;}'
+    + '@keyframes rw-rot{to{transform:rotate(360deg)}}';
   var style = document.createElement('style');
   style.textContent = css;
   (document.head || document.documentElement).appendChild(style);

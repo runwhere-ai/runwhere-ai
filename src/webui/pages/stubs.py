@@ -73,13 +73,14 @@ def _workload_name(kind: str, item_name: str) -> str:
     return item_name.rsplit("-", 1)[0]
 
 
-def del_action(name: str, namespace: str) -> dict:
-    """删除按钮单元格(列表「操作」列)。前端确认后 fetch DELETE /api/v1/jobs。
+def del_action(name: str, namespace: str, pod: str) -> dict:
+    """删除按钮单元格(列表「操作」列)。前端确认后 fetch DELETE /api/v1/jobs,
+    进入「删除中」并轮询 pod 是否从列表消失(真正删完)再移除该行。
 
     key 用 delbtn 而非 del——del 是 Jinja 关键字,模板里 cell.del 会被解析成
     Undefined 导致按钮渲染不出来(踩过)。
     """
-    return {"delbtn": {"name": name, "namespace": namespace}}
+    return {"delbtn": {"name": name, "namespace": namespace, "pod": pod}}
 
 def bar(pct: int, label: str | None = None) -> dict:
     return {"bar": pct, "label": label}
@@ -214,8 +215,8 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
                 gpu_cell(it.namespace, it.jobId, "util"),
                 gpu_cell(it.namespace, it.jobId, "mem"),
             ] + row[4:]
-        # 末尾「操作」列:删除按钮(同样用工作负载名 wl,gpuctl delete_job 据此删)。
-        row.append(del_action(wl, it.namespace))
+        # 末尾「操作」列:删除按钮(工作负载名 wl 删,pod=it.jobId 用于轮询是否删完)。
+        row.append(del_action(wl, it.namespace, it.jobId))
         rows.append(row)
     return rows
 
