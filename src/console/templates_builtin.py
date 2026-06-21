@@ -65,7 +65,7 @@ storage:
         name="notebook-jupyter-gpu", display="Jupyter Notebook(GPU)", kind="notebook",
         description="带 1 张 GPU 的 PyTorch JupyterLab,模型调试 / 小规模微调。",
         tags=("需 GPU", "交互开发"), gpu=1, cpu=4, memory="16Gi",
-        image="jupyter/pytorch-notebook:latest",
+        image="quay.io/jupyter/pytorch-notebook:latest",
         yaml="""kind: notebook
 version: v0.1
 job:
@@ -274,19 +274,19 @@ resources:
     ),
     Template(
         name="training-gpucheck", display="GPU 环境自检", kind="training",
-        description="CUDA vectorAdd 一次性自检任务,验证节点 GPU/驱动可用,跑完即 Succeeded。",
+        description="nvidia-smi 一次性自检,验证节点 GPU/驱动在容器内可用,跑完即 Succeeded。兼容新架构(Blackwell 等)。",
         tags=("需 GPU", "自检"), gpu=1, cpu=1, memory="1Gi",
-        image="nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda12.5.0",
+        image="nvidia/cuda:12.8.0-base-ubuntu22.04",
         yaml="""kind: training
 version: v0.1
 job:
   name: __NAME__
   namespace: __NAMESPACE__
   priority: medium
-  description: "GPU 环境自检(CUDA vectorAdd)"
+  description: "GPU 环境自检(nvidia-smi)"
 environment:
   image: __IMAGE__
-  command: ["/cuda-samples/vectorAdd"]
+  command: ["nvidia-smi"]
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -310,7 +310,7 @@ job:
 environment:
   image: __IMAGE__
   command:
-    - python
+    - python3
     - -m
     - vllm.entrypoints.openai.api_server
     - --model=Qwen/Qwen2.5-0.5B-Instruct
@@ -363,39 +363,6 @@ resources:
 storage:
   workdirs:
     - path: /models
-""",
-    ),
-    Template(
-        name="inference-tgi", display="TGI 推理服务", kind="inference",
-        description="HuggingFace Text Generation Inference;默认 Qwen2.5-0.5B,改 --model-id 换模型。",
-        tags=("需 GPU", "HuggingFace"), gpu=1, cpu=4, memory="16Gi",
-        image="ghcr.io/huggingface/text-generation-inference:latest",
-        yaml="""kind: inference
-version: v0.1
-job:
-  name: __NAME__
-  namespace: __NAMESPACE__
-  priority: medium
-  description: "TGI 推理服务"
-environment:
-  image: __IMAGE__
-  command:
-    - text-generation-launcher
-    - --model-id=Qwen/Qwen2.5-0.5B-Instruct
-    - --hostname=0.0.0.0
-    - --port=8000
-service:
-  replicas: 1
-  port: 8000
-  healthCheck: /health
-resources:
-  pool: __POOL__
-  gpu: __GPU__
-  cpu: __CPU__
-  memory: __MEMORY__
-storage:
-  workdirs:
-    - path: /data
 """,
     ),
     Template(
@@ -779,7 +746,7 @@ job:
 environment:
   image: __IMAGE__
   command:
-    - python
+    - python3
     - -m
     - vllm.entrypoints.openai.api_server
     - --model=deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
@@ -814,7 +781,7 @@ job:
 environment:
   image: __IMAGE__
   command:
-    - python
+    - python3
     - -m
     - vllm.entrypoints.openai.api_server
     - --model=Qwen/Qwen2.5-7B-Instruct
@@ -849,7 +816,7 @@ job:
 environment:
   image: __IMAGE__
   command:
-    - python
+    - python3
     - -m
     - vllm.entrypoints.openai.api_server
     - --model=openai/gpt-oss-20b
