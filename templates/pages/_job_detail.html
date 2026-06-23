@@ -30,7 +30,11 @@
 {% endmacro %}
 
 {% block content %}
-<div class="mx-auto max-w-6xl space-y-5">
+<div class="mx-auto max-w-6xl space-y-5"
+     hx-ext="ws" ws-connect="/_events?ns={{ namespace }}&kind={{ kind }}">
+
+  {# 实时事件横幅占位:对象被外部删除时由 /_events 推送填充(ws-frames.md) #}
+  <div id="detail-deleted-banner"></div>
 
   {% if not_found %}
     <div class="card p-12 text-center text-muted-foreground">
@@ -45,7 +49,7 @@
       <a href="{{ list_url }}" class="btn btn-secondary h-9 px-4">返回</a>
       <h1 class="text-2xl font-semibold tracking-tight truncate">{{ name }}</h1>
       <span class="badge badge-kind-{{ kind }}">{{ kind_label }}</span>
-      <span class="badge badge-{{ status_tone }}">{{ status }}</span>
+      <span id="status-{{ namespace }}-{{ kind }}-{{ name }}" class="badge badge-{{ status_tone }}">{{ status }}</span>
     </div>
     <div class="flex items-center gap-2 shrink-0">
       <a href="/quickstart/new?from_job={{ name }}&namespace={{ namespace }}"
@@ -62,7 +66,7 @@
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-6">
       <div class="min-w-0">
         <div class="text-xs text-muted-foreground mb-1">状态</div>
-        <span class="badge badge-{{ status_tone }}">{{ status }}</span>
+        <span id="status2-{{ namespace }}-{{ kind }}-{{ name }}" class="badge badge-{{ status_tone }}">{{ status }}</span>
       </div>
       {{ stat("命名空间", namespace) }}
       {{ stat("运行时长", age) }}

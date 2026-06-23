@@ -70,7 +70,7 @@ async def events(
 
     try:
         async for evt in bus.iterate(handle):
-            html = _render_event(evt)
+            html = await _render_event(evt)
             await ws.send_text(html)
     except WebSocketDisconnect:
         pass
@@ -82,34 +82,50 @@ async def events(
 
 
 async def _auth_ws(ws: WebSocket, auth: AuthProvider):
-    # Build a tiny shim so AuthProvider.authenticate can read cookies.
-    from src.config import CONFIG as _C
-    cookie = ws.cookies.get(_C.session_cookie_name)
-    if not cookie:
-        raise AuthError("missing token")
-
+    # Shim the WS's cookies + headers into a request-like object and let the
+    # configured AuthProvider authenticate however it likes. We deliberately do NOT
+    # hard-require a session cookie here: the default platform-console provider
+    # (KubeConfigProvider) authenticates with a server-side K8s identity and no
+    # browser cookie, so requiring one would wrongly reject EVERY /_events connection
+    # in console mode (realtime status would silently never connect). Bearer mode
+    # still enforces its token inside authenticate().
     class _ShimRequest:
-        cookies = {_C.session_cookie_name: cookie}
-        headers = {}
+        cookies = dict(ws.cookies)
+        headers = ws.headers
 
     return await auth.authenticate(_ShimRequest())  # type: ignore[arg-type]
 
 
-def _render_event(evt) -> str:
-    """Render an InformerEvent into the OOB HTML fragment.
+async def _render_event(evt) -> str:
+    """Render an InformerEvent into OOB HTML fragment(s) (contracts/ws-frames.md).
 
-    For Phase 2 we emit the *minimum viable* fragments; later slices
-    extend with per-kind row templates.
+    One event drives several pages, so we emit every fragment whose target *might*
+    exist; htmx applies an `hx-swap-oob` only when its id is present on the page, so
+    a list page picks up the `row-…` fragment, a detail page picks up the `status-…`
+    badges / deletion banner, and unrelated pages ignore the rest.
     """
-    row_id = f"row-{evt.namespace}-{evt.kind.value}-{evt.name}"
+    ns, k, name = evt.namespace, evt.kind.value, evt.name
+    row_id = f"row-{ns}-{k}-{name}"
+
     if evt.type == "DELETED":
-        return (
-            f'<tr id="{row_id}" hx-swap-oob="delete"></tr>'
+        # List: drop the row. Detail: surface a "deleted externally" banner.
+        banner = (
+            f'<div id="detail-deleted-banner" hx-swap-oob="outerHTML" '
+            f'class="banner banner-warning">该对象已被删除（外部操作）。'
+            f'<a href="/{k}s" class="underline">返回列表</a></div>'
         )
-    # Generic placeholder row — pages/* slice templates will override.
+        return f'<tr id="{row_id}" hx-swap-oob="delete"></tr>{banner}'
+
+    # ADDED / MODIFIED → live status badge for the detail page. Reuse the exact
+    # badge logic the list/detail use (lazy import avoids a circular import).
+    from src.webui.pages.stubs import status_badge
+
+    status = (evt.object or {}).get("display_status") or "Unknown"
+    sb = status_badge(status)
+    cls = f'badge badge-{sb["tone"]}'
+    label = sb["badge"]
+    # Two badges on the detail page (header + overview) → two distinct ids.
     return (
-        f'<tr id="{row_id}" hx-swap-oob="outerHTML" data-rv="{evt.resource_version}" '
-        f'data-event="{evt.type}">'
-        f'<td>{evt.name}</td><td>{evt.namespace}</td><td>{evt.kind.value}</td>'
-        f'</tr>'
+        f'<span id="status-{ns}-{k}-{name}" hx-swap-oob="outerHTML" class="{cls}">{label}</span>'
+        f'<span id="status2-{ns}-{k}-{name}" hx-swap-oob="outerHTML" class="{cls}">{label}</span>'
     )

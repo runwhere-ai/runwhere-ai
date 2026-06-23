@@ -7,6 +7,7 @@ server-side Service layer (spec FR-115).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -30,16 +31,59 @@ logging.basicConfig(
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
+async def _start_informer_safe(inf) -> None:
+    """Start one informer, swallowing failures (e.g. no cluster in dev/test).
+
+    A failed start just means realtime status is disabled for that kind — the UI
+    still works (pages render on request); it must never break app boot.
+    """
+    try:
+        await inf.start()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "SharedInformer[%s] failed to start; realtime status disabled for this kind: %s",
+            getattr(inf, "kind", "?"), exc,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown wiring.
+    """Startup / shutdown wiring: start one SharedInformer per Kind so job status
+    streams to the browser over /_events (spec FR-100/101). Pubsub is the shared
+    singleton bus the WS endpoint subscribes to.
 
-    Foundation phase will wire the SharedInformer, TopicBus, IdleWatcher etc.
-    For now we just log readiness.
+    Startup is deliberately resilient: if there is no reachable cluster (local dev,
+    unit tests), informers just don't start and the app boots normally.
     """
     logger.info("runwhere-ai %s starting…", __version__)
-    # TODO(Phase 2): start SharedInformer, TopicBus, IdleWatcher here.
+    informers: list = []
+    try:
+        from src.console.informer import SharedInformer
+        from src.console.k8s_watch import make_pod_adapter
+        from src.console.models import Kind
+        from src.console.pubsub import get_topic_bus
+
+        bus = get_topic_bus()
+        for kind in Kind:
+            list_fn, watch_fn = make_pod_adapter(kind)
+            informers.append(
+                SharedInformer(kind, list_fn=list_fn, watch_fn=watch_fn, topic_bus=bus)
+            )
+        # Start in the background so a slow/absent cluster never blocks boot.
+        for inf in informers:
+            asyncio.create_task(_start_informer_safe(inf))
+        app.state.informers = informers
+        logger.info("started %d SharedInformer(s) for realtime status", len(informers))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("informers not started; realtime status disabled: %s", exc)
+
     yield
+
+    for inf in informers:
+        try:
+            await inf.stop()
+        except Exception:  # noqa: BLE001
+            pass
     logger.info("runwhere-ai shutting down…")
 
 
