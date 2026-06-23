@@ -45,78 +45,9 @@
                 {% endfor %}
               </tr>
             </thead>
-            <tbody class="[&_tr:last-child]:border-0">
-              {% for row in rows %}
-                <tr class="border-b transition-colors hover:bg-muted/50">
-                  {% for cell in row %}
-                    {% set col = columns[loop.index0] %}
-                    {% set is_right = col.align == 'right' %}
-                    <td class="p-2 align-middle whitespace-nowrap
-                               {% if is_right %}text-right tabular-nums{% endif %}">
-                      {% if cell is mapping %}
-                        {% if cell.badge %}
-                          <span class="badge badge-{{ cell.tone or 'neutral' }} font-medium">
-                            {{ cell.badge }}
-                          </span>
-                        {% elif cell.kind %}
-                          <span class="badge badge-kind-{{ cell.kind }} font-medium">
-                            {{ cell.label or cell.kind }}
-                          </span>
-                        {% elif cell.mono %}
-                          <span class="font-mono text-xs text-muted-foreground">{{ cell.mono }}</span>
-                        {% elif cell.muted %}
-                          <span class="text-muted-foreground">{{ cell.muted }}</span>
-                        {% elif cell.bar is defined and cell.bar is not none %}
-                          {% set pct = cell.bar | int %}
-                          {% set lbl = cell.label or (pct ~ '%') %}
-                          {% set is_fail = cell.label and ('OOM' in cell.label or '失败' in cell.label) %}
-                          {% set is_done = pct >= 100 %}
-                          <span class="tabular-nums
-                            {% if is_fail %}text-destructive font-medium
-                            {% elif is_done %}text-emerald-600 dark:text-emerald-400 font-medium
-                            {% else %}text-foreground{% endif %}">{{ lbl }}</span>
-                        {% elif cell.gpu %}
-                          {# 实时 GPU 热力数字:数字 + 背景色按档位,由底部脚本批量轮询填充 #}
-                          <span class="rw-gpu inline-flex items-center justify-center rounded-md text-xs font-medium tabular-nums"
-                                style="min-width:46px;height:22px"
-                                data-rw-gpu-ns="{{ cell.gpu.ns }}" data-rw-gpu-pod="{{ cell.gpu.pod }}"
-                                data-rw-gpu-metric="{{ cell.gpu.metric }}">—</span>
-                        {% elif cell.title %}
-                          <div class="flex flex-col">
-                            {% if cell.href %}
-                              <a href="{{ cell.href }}" class="font-medium truncate text-primary hover:underline">
-                                {{ cell.title }}
-                              </a>
-                            {% else %}
-                              <span class="font-medium truncate">{{ cell.title }}</span>
-                            {% endif %}
-                            {% if cell.sub %}<span class="text-xs text-muted-foreground">{{ cell.sub }}</span>{% endif %}
-                          </div>
-                        {% elif cell.delbtn %}
-                          <button type="button" title="删除" aria-label="删除"
-                                  onclick="rwDelete('{{ cell.delbtn.name }}','{{ cell.delbtn.namespace }}','{{ cell.delbtn.pod }}',this)"
-                                  class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background text-destructive hover:bg-muted transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-                                 fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                          </button>
-                        {% elif cell.action %}
-                          <a href="{{ cell.href }}" class="btn btn-outline h-8 px-2">
-                            {% if cell.icon %}{{ icon(cell.icon, class="h-3.5 w-3.5") }}{% endif %}
-                            {{ cell.action }}
-                          </a>
-                        {% else %}
-                          {{ cell.text or '' }}
-                        {% endif %}
-                      {% else %}
-                        {{ cell }}
-                      {% endif %}
-                    </td>
-                  {% endfor %}
-                </tr>
-              {% endfor %}
-            </tbody>
+            {# tbody 抽成片段:任务列表(poll_url 命中)每 5s htmx 自动重渲染整块,行的
+               增/删/状态变化无需手动刷新(详情页用 WS,列表用定期重渲染——分组场景更稳)。 #}
+            {% include "pages/_listing_tbody.html" %}
           </table>
         </div>
       </div>

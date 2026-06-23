@@ -336,6 +336,15 @@ async def _render(request: Request, user: User, page: _Page):
     except Exception as exc:  # never 500 a full page render; show empty + log
         logger.warning("page %s: failed to load live data (%s)", page.path, exc)
         rows = []
+    # 任务列表(用户页)每 5s 由 htmx 重新拉取 ?_rows=1 的 tbody 片段 → 行的增/删/状态变化
+    # 无需手动刷新。资源池/命名空间不轮询(poll_url=None)。?_rows=1 时只回 tbody 片段。
+    poll_url = (page.path + "?_rows=1") if page in _USER_PAGES else None
+    if request.query_params.get("_rows"):
+        return templates.TemplateResponse(
+            request,
+            "pages/_listing_tbody.html",
+            {"columns": page.columns, "rows": rows, "poll_url": poll_url},
+        )
     return templates.TemplateResponse(
         request,
         "pages/_listing.html",
@@ -348,6 +357,7 @@ async def _render(request: Request, user: User, page: _Page):
             "columns": page.columns,
             "rows": rows,
             "current_ns": ns,
+            "poll_url": poll_url,
         },
     )
 
