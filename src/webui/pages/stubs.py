@@ -169,7 +169,10 @@ _QUOTA_COLUMNS = [
 
 # ── row builders (live data) ──────────────────────────────────────────────────
 async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any]]:
-    """One row per pod for the given job kind, matching gpuctl get jobs.
+    """One row per JOB for the given kind.
+
+    gpuctl /api/v1/jobs 返回 Pod 级数据;同一个作业的多个 Pod(失败重试 backoff / 多机训练)
+    在此折叠成一行,各 Pod 明细在详情页展示。
 
     namespace=None → 全部命名空间;否则按全局选中的命名空间过滤(命名空间=用户)。
     """
@@ -178,11 +181,36 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
     resp = await get_jobs(kind=kind, pool=None, status=None, namespace=namespace, page=1, pageSize=200)
     # compute 是 CPU 任务,不加 GPU 列(列数须与所选 columns 对齐)。
     want_gpu = kind != "compute"
-    rows: list[list[Any]] = []
+    # 按作业(控制器)归并:gpuctl /api/v1/jobs 是 Pod 级(一个失败重试/多机作业有多个 Pod)。
+    # 列表要「一行一个作业」,故在 UI 层按 (namespace, name) 折叠,每个作业取一个代表 Pod——
+    # 状态优先级最高的那个(Running > Succeeded > Pending/其它 > Failed)。pod 维度的列
+    # (pod 名 / GPU util-mem)显示该代表 Pod;全部 Pod 明细在详情页展示。归并是 UI 展示决策,
+    # 不动 gpuctl 的 /api/v1/jobs(对外契约保持 Pod 级、与 CLI 一致)。
+    def _status_rank(s: str) -> int:
+        s = (s or "").lower()
+        if s == "running":
+            return 0
+        if s in ("succeeded", "completed"):
+            return 1
+        if s in ("failed", "error", "oomkilled", "crashloopbackoff", "imagepullbackoff"):
+            return 3
+        return 2  # pending / containercreating / 其它
+
+    reps: dict = {}
+    order: list = []
     for it in resp.items:
-        # it.name 现在就是真实作业名(gpuctl 路由从 pod 标签 app/job-name 读,= YAML
-        # job.name = 工作负载名),直接用:任务名称列显示它、详情页链接用它、删除按它删。
-        # (旧版 name 是 pod 名的启发式切割,要再 _workload_name 二次推导;已不需要。)
+        key = (it.namespace, it.name)
+        if key not in reps:
+            reps[key] = it
+            order.append(key)
+        elif _status_rank(it.status) < _status_rank(reps[key].status):
+            reps[key] = it
+
+    rows: list[list[Any]] = []
+    for key in order:
+        it = reps[key]
+        # it.name = 真实作业名(gpuctl 路由从 pod 标签 app/job-name 读,= YAML job.name =
+        # 工作负载名):任务名称列显示它、详情页链接用它、删除按它删。
         wl = it.name
         row = [
             m(it.jobId),
