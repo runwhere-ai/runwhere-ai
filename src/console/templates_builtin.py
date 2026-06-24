@@ -320,6 +320,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -355,6 +356,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -421,6 +423,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -689,6 +692,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -756,6 +760,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -791,6 +796,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -826,6 +832,7 @@ service:
   replicas: 1
   port: 8000
   healthCheck: /health
+  startupTimeout: 15m   # 启动(拉取+加载模型)最多等这么久,期间不被探针杀;超时才判失败重启。大模型/慢网络可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
