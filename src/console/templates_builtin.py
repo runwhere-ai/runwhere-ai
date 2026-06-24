@@ -455,6 +455,7 @@ service:
   replicas: 1
   port: 80
   healthCheck: /
+  startupTimeout: 5m   # 服务启动到就绪最多等这么久;超时才判失败重启。compute 服务通常起得快,慢的(如装依赖)可调大。
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -515,6 +516,8 @@ environment:
 service:
   replicas: 1
   port: 6379
+  healthCheck: tcp     # redis 是 TCP 服务,没 HTTP 健康端点 → 只探端口能否连上
+  startupTimeout: 5m
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -864,6 +867,8 @@ environment:
 service:
   replicas: 1
   port: 6333
+  healthCheck: /healthz
+  startupTimeout: 5m
 resources:
   pool: __POOL__
   gpu: __GPU__
@@ -897,6 +902,8 @@ environment:
 service:
   replicas: 1
   port: 8000
+  healthCheck: /_stcore/health
+  startupTimeout: 5m
 resources:
   pool: __POOL__
   gpu: __GPU__
