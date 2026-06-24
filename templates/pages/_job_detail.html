@@ -328,11 +328,11 @@
       reconnect() { try { this.ws && this.ws.close(); } catch (e) {} this.clearLogs(); this.connect(); },
       clearLogs() { this.lines = []; this.count = 0; if (this.$refs.box) this.$refs.box.textContent = ''; },
       // 终端 ANSI 颜色码(SGR,如 \x1b[32m INFO \x1b[0m)→ 安全 HTML。逐行无状态解析
-      // (日志每行自带 reset),先 HTML 转义再换成 <span style>,故日志内容无法注入 HTML。
+      // (每行自带 reset)。颜色 SGR → span;其余 CSI(光标/清行/隐藏光标/同步输出,ollama 进度条会发一堆)直接剔除。先转义,内容无法注入。
       ansiToHtml(s) {
         const FG = { 30: '#3f3f46', 31: '#f87171', 32: '#4ade80', 33: '#fbbf24', 34: '#60a5fa', 35: '#c084fc', 36: '#22d3ee', 37: '#d4d4d8',
                      90: '#71717a', 91: '#fca5a5', 92: '#86efac', 93: '#fde047', 94: '#93c5fd', 95: '#d8b4fe', 96: '#67e8f9', 97: '#fafafa' };
-        const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const esc = (t) => t.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         const st = { fg: null, bold: false, dim: false, italic: false, underline: false };
         const seg = (txt) => {
           if (!txt) return '';
@@ -344,11 +344,11 @@
           if (st.underline) a.push('text-decoration:underline');
           return a.length ? '<span style="' + a.join(';') + '">' + esc(txt) + '</span>' : esc(txt);
         };
-        let out = '', last = 0, m;
-        const re = /\x1b\[([0-9;]*)m/g;
+        s = s.replace(/\x1b\][^\x07]*\x07/g, '').replace(/\x1b[=>78Mc]/g, ''); let out = '', last = 0, m;   // 先去 OSC / 双字符转义
+        const re = /\x1b\[([0-?]*)[ -\/]*([@-~])/g;
         while ((m = re.exec(s)) !== null) {
           out += seg(s.slice(last, m.index));
-          last = re.lastIndex;
+          last = re.lastIndex; if (m[2] !== 'm') continue;   // 非颜色 CSI(光标移动/清行/隐藏光标/同步输出…)→ 丢弃
           const codes = m[1] === '' ? [0] : m[1].split(';').map(Number);
           for (let i = 0; i < codes.length; i++) {
             const c = codes[i];
