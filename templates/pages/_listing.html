@@ -5,7 +5,9 @@
 {% block breadcrumb %}<span class="text-foreground font-medium">{{ page_title }}</span>{% endblock %}
 
 {% block content %}
-<div class="mx-auto max-w-7xl">
+{# 任务列表订阅 /_events:行状态/删除经定点 OOB 实时更新(ws_kind 仅任务列表有;资源池/命名空间无)。 #}
+<div class="mx-auto max-w-7xl"
+     {% if ws_kind %}hx-ext="ws" ws-connect="/_events?ns={{ ws_ns | urlencode }}&kind={{ ws_kind }}"{% endif %}>
 
   {# ── Card wrapping the data table ────────────────────────────────────── #}
   <div class="card flex flex-col py-4 gap-4 overflow-hidden">
@@ -75,9 +77,9 @@
 </div>
 
 <script>
-  // 任务删除:确认弹层 → DELETE(优雅,不 force)→ 按钮进入「删除中」spinner,行保留 →
-  // 轮询任务列表,等该 pod 真正从列表消失(Terminating 结束)再移除该行 + toast。
-  // 这样删除中的状态由 k8s 真实 Terminating 驱动,不会出现「点了还在」。
+  // 任务删除:确认弹层 → DELETE(优雅,不 force)→ 按钮进入「删除中」spinner。
+  // 行的移除由 /_events WebSocket 的 DELETED 事件驱动(pod 真没了才删该行);下面的轮询是
+  // WS 未连时的兜底。已无 tbody 整块轮询,故 spinner/行引用不会被冲掉。
   window.rwDelete = async function (name, ns, pod, btn) {
     var ok = await window.rwConfirm({
       title: '删除任务', message: '确定删除任务「' + name + '」?此操作不可撤销。',
@@ -85,7 +87,6 @@
     });
     if (!ok) return;
 
-    // 进入「删除中」:trash 图标换成 spinner,禁用,行保留。
     var orig = btn.innerHTML;
     function restore() { btn.innerHTML = orig; btn.disabled = false; btn.title = '删除'; btn.style.opacity = ''; }
     btn.disabled = true; btn.title = '删除中…'; btn.style.opacity = '.7';
@@ -96,7 +97,7 @@
       if (!r.ok) { window.rwToast('删除失败:HTTP ' + r.status, 'err'); restore(); return; }
     } catch (e) { window.rwToast('删除失败:' + e, 'err'); restore(); return; }
 
-    // 轮询:pod 仍在列表 → 维持「删除中」;消失 → 真正删完,移除该行。
+    // 兜底轮询(WS 未连时):pod 消失 → 移除该行。WS 已连时通常 WS 先把该行删掉。
     var tr = btn.closest('tr');
     var deadline = Date.now() + 90000;
     (function poll() {
@@ -109,7 +110,7 @@
           if (Date.now() > deadline) { window.rwToast('删除处理较慢,请稍后刷新', 'info'); restore(); return; }
           setTimeout(poll, 1500);
         })
-        .catch(function () { setTimeout(poll, 2000); });
+        .catch(function () { if (Date.now() > deadline) { restore(); return; } setTimeout(poll, 2000); });
     })();
   };
 

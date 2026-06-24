@@ -212,11 +212,17 @@ async def _job_rows(kind: str, namespace: Optional[str] = None) -> list[list[Any
         # it.name = 真实作业名(gpuctl 路由从 pod 标签 app/job-name 读,= YAML job.name =
         # 工作负载名):任务名称列显示它、详情页链接用它、删除按它删。
         wl = it.name
+        # 行 + 状态格挂 OOB id,供 /_events WebSocket 定点替换:DELETED→删该行、
+        # MODIFIED→只换状态格(不动 GPU 格/删除按钮)。详情页用同样的 id 约定。
+        id_cell = m(it.jobId)
+        id_cell["row_id"] = f"row-{it.namespace}-{kind}-{wl}"
+        status_cell = status_badge(it.status)
+        status_cell["oob_id"] = f"status-{it.namespace}-{kind}-{wl}"
         row = [
-            m(it.jobId),
+            id_cell,
             link(wl, f"/{kind}s/{wl}?namespace={it.namespace}"),
             m(it.namespace),
-            status_badge(it.status),
+            status_cell,
             it.ready,
             _maybe_mono(it.node),
             _maybe_mono(it.ip),
@@ -336,15 +342,11 @@ async def _render(request: Request, user: User, page: _Page):
     except Exception as exc:  # never 500 a full page render; show empty + log
         logger.warning("page %s: failed to load live data (%s)", page.path, exc)
         rows = []
-    # 任务列表(用户页)每 5s 由 htmx 重新拉取 ?_rows=1 的 tbody 片段 → 行的增/删/状态变化
-    # 无需手动刷新。资源池/命名空间不轮询(poll_url=None)。?_rows=1 时只回 tbody 片段。
-    poll_url = (page.path + "?_rows=1") if page in _USER_PAGES else None
-    if request.query_params.get("_rows"):
-        return templates.TemplateResponse(
-            request,
-            "pages/_listing_tbody.html",
-            {"columns": page.columns, "rows": rows, "poll_url": poll_url},
-        )
+    # 任务列表(用户页)订阅 /_events WebSocket → 行的状态/删除经定点 OOB 实时更新(无轮询)。
+    # ws_kind 由路径推导(/trainings→training);ws_ns 用选中命名空间,空=全部(用通配 *)。
+    is_job_list = page in _USER_PAGES
+    ws_kind = page.path.lstrip("/").rstrip("s") if is_job_list else None
+    ws_ns = (ns or "*") if is_job_list else None
     return templates.TemplateResponse(
         request,
         "pages/_listing.html",
@@ -357,7 +359,8 @@ async def _render(request: Request, user: User, page: _Page):
             "columns": page.columns,
             "rows": rows,
             "current_ns": ns,
-            "poll_url": poll_url,
+            "ws_kind": ws_kind,
+            "ws_ns": ws_ns,
         },
     )
 

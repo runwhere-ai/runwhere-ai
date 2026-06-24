@@ -109,6 +109,12 @@ async def _render_event(evt) -> str:
 
     if evt.type == "DELETED":
         # List: drop the row. Detail: surface a "deleted externally" banner.
+        # NOTE: the informer cache is keyed by (ns, controller-name) — one entry per
+        # workload, last-pod-wins (see k8s_watch.normalize_pod + informer._handle_event).
+        # So a DELETED faithfully means "this workload's representative pod is gone" and
+        # removing the row is correct for the common single-pod case. A genuinely
+        # multi-pod workload (distributed training parallelism>1) would need the cache
+        # re-keyed by pod to avoid a transient row-drop — tracked as a follow-up.
         banner = (
             f'<div id="detail-deleted-banner" hx-swap-oob="outerHTML" '
             f'class="banner banner-warning">该对象已被删除（外部操作）。'
@@ -122,7 +128,7 @@ async def _render_event(evt) -> str:
 
     status = (evt.object or {}).get("display_status") or "Unknown"
     sb = status_badge(status)
-    cls = f'badge badge-{sb["tone"]}'
+    cls = f'badge badge-{sb["tone"]} font-medium'   # 与列表/详情徽章类一致,OOB 替换不掉样式
     label = sb["badge"]
     # Two badges on the detail page (header + overview) → two distinct ids.
     return (
