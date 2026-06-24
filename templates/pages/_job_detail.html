@@ -306,7 +306,7 @@
         const box = this.$refs.box;
         if (!box) return;
         if (trimmed) { this.render(); return; }  // 触顶上限后整体重渲染以保持同步（少见）
-        const node = document.createTextNode(text + '\n');
+        const node = document.createElement('span'); node.innerHTML = this.ansiToHtml(text) + '\n';
         if (this.order === 'asc') {
           const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
           box.appendChild(node);
@@ -321,12 +321,54 @@
         const box = this.$refs.box;
         if (!box) return;
         const arr = this.order === 'asc' ? this.lines : this.lines.slice().reverse();
-        box.textContent = arr.length ? arr.join('\n') + '\n' : '';
+        box.innerHTML = arr.length ? arr.map((l) => this.ansiToHtml(l)).join('\n') + '\n' : '';
         box.scrollTop = this.order === 'asc' ? box.scrollHeight : 0;
       },
       toggleOrder() { this.order = (this.order === 'asc') ? 'desc' : 'asc'; this.render(); },
       reconnect() { try { this.ws && this.ws.close(); } catch (e) {} this.clearLogs(); this.connect(); },
       clearLogs() { this.lines = []; this.count = 0; if (this.$refs.box) this.$refs.box.textContent = ''; },
+      // 终端 ANSI 颜色码(SGR,如 \x1b[32m INFO \x1b[0m)→ 安全 HTML。逐行无状态解析
+      // (日志每行自带 reset),先 HTML 转义再换成 <span style>,故日志内容无法注入 HTML。
+      ansiToHtml(s) {
+        const FG = { 30: '#3f3f46', 31: '#f87171', 32: '#4ade80', 33: '#fbbf24', 34: '#60a5fa', 35: '#c084fc', 36: '#22d3ee', 37: '#d4d4d8',
+                     90: '#71717a', 91: '#fca5a5', 92: '#86efac', 93: '#fde047', 94: '#93c5fd', 95: '#d8b4fe', 96: '#67e8f9', 97: '#fafafa' };
+        const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const st = { fg: null, bold: false, dim: false, italic: false, underline: false };
+        const seg = (txt) => {
+          if (!txt) return '';
+          const a = [];
+          if (st.fg) a.push('color:' + st.fg);
+          if (st.bold) a.push('font-weight:600');
+          if (st.dim) a.push('opacity:.6');
+          if (st.italic) a.push('font-style:italic');
+          if (st.underline) a.push('text-decoration:underline');
+          return a.length ? '<span style="' + a.join(';') + '">' + esc(txt) + '</span>' : esc(txt);
+        };
+        let out = '', last = 0, m;
+        const re = /\x1b\[([0-9;]*)m/g;
+        while ((m = re.exec(s)) !== null) {
+          out += seg(s.slice(last, m.index));
+          last = re.lastIndex;
+          const codes = m[1] === '' ? [0] : m[1].split(';').map(Number);
+          for (let i = 0; i < codes.length; i++) {
+            const c = codes[i];
+            if (c === 0) { st.fg = null; st.bold = st.dim = st.italic = st.underline = false; }
+            else if (c === 1) st.bold = true;
+            else if (c === 2) st.dim = true;
+            else if (c === 3) st.italic = true;
+            else if (c === 4) st.underline = true;
+            else if (c === 22) { st.bold = false; st.dim = false; }
+            else if (c === 23) st.italic = false;
+            else if (c === 24) st.underline = false;
+            else if (c === 39) st.fg = null;
+            else if (FG[c] !== undefined) st.fg = FG[c];
+            else if (c === 38 && codes[i + 1] === 2) { st.fg = 'rgb(' + codes[i + 2] + ',' + codes[i + 3] + ',' + codes[i + 4] + ')'; i += 4; }
+            else if (c === 38 && codes[i + 1] === 5) { i += 2; }   // 256 色少见,跳过着色
+          }
+        }
+        out += seg(s.slice(last));
+        return out;
+      },
     };
   };
 </script>
