@@ -34,7 +34,8 @@ class SubscriberHandle:
     dropped: int = 0  # count of events dropped due to backpressure
 
     def matches(self, ns: str, kind: Kind) -> bool:
-        return (ns, kind) in self.topics
+        # ("*", kind) = 通配订阅:列表「全部命名空间」视图用它,匹配该 kind 的任意 ns 事件。
+        return (ns, kind) in self.topics or ("*", kind) in self.topics
 
 
 class TopicBus:

@@ -1,11 +1,11 @@
-{# 列表 tbody 片段:既由 _listing.html 内联渲染,也作为 ?_rows=1 的轮询响应单独返回。
-   任务列表(poll_url 命中)每 5s 由 htmx 重新拉取整块 tbody → 行的增/删/状态变化无需手动刷新;
-   服务端 _job_rows 已按作业分组,重渲染天然正确(不会重复行)。资源池/命名空间不传 poll_url、不轮询。 #}
+{# 列表 tbody 片段(由 _listing.html 内联渲染)。任务列表的行/状态格挂 OOB id
+   (row-{ns}-{kind}-{name} / status-{ns}-{kind}-{name}),由 /_events WebSocket 定点替换:
+   DELETED→删该行、MODIFIED→只换状态格(不动 GPU 格/删除按钮)。资源池/命名空间无 id、不实时。 #}
 {% from "components/icon.html" import icon %}
-<tbody class="[&_tr:last-child]:border-0"
-       {% if poll_url %}hx-get="{{ poll_url }}" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+<tbody class="[&_tr:last-child]:border-0">
   {% for row in rows %}
-    <tr class="border-b transition-colors hover:bg-muted/50">
+    {% set _rid = row[0].row_id if (row and row[0] is mapping and row[0].row_id is defined) else none %}
+    <tr {% if _rid %}id="{{ _rid }}" {% endif %}class="border-b transition-colors hover:bg-muted/50">
       {% for cell in row %}
         {% set col = columns[loop.index0] %}
         {% set is_right = col.align == 'right' %}
@@ -13,7 +13,7 @@
                    {% if is_right %}text-right tabular-nums{% endif %}">
           {% if cell is mapping %}
             {% if cell.badge %}
-              <span class="badge badge-{{ cell.tone or 'neutral' }} font-medium">
+              <span {% if cell.oob_id %}id="{{ cell.oob_id }}" {% endif %}class="badge badge-{{ cell.tone or 'neutral' }} font-medium">
                 {{ cell.badge }}
               </span>
             {% elif cell.kind %}
