@@ -92,11 +92,14 @@ async def proxy_http(namespace: str, name: str, path: str, request: Request,
     # 与全站一致的会话鉴权:平台(kubeconfig)模式恒返回固定身份 → no-op;
     # 真实鉴权(bearer/oidc)模式下未登录则 401,堵住「代理绕过会话」的口子。
     # notebook 自身的 jupyter token 仍是内层第二道防线。
-    url = f"http://{await _upstream_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
     fwd = {k: v for k, v in request.headers.items() if k.lower() not in _HOP}
     body = await request.body()
-    timeout = aiohttp.ClientTimeout(total=60)
-    try:
+    # sock_connect 短超时:notebook 删后重建会换 ClusterIP,连「旧/已失效」IP 必须快速失败,
+    # 才能在同一请求内失效缓存→重查新 ClusterIP→重试,而不是傻等 total 超时(否则一直 502)。
+    timeout = aiohttp.ClientTimeout(total=60, sock_connect=3)
+
+    async def _attempt() -> Response:
+        url = f"http://{await _upstream_host(name, namespace)}:{_NB_PORT}/nb/{namespace}/{name}/{path}"
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.request(
                 request.method, url,
@@ -109,10 +112,17 @@ async def proxy_http(namespace: str, name: str, path: str, request: Request,
                 return Response(content=content, status_code=resp.status,
                                 headers=out_headers,
                                 media_type=resp.headers.get("Content-Type"))
-    except aiohttp.ClientError as exc:
-        _invalidate(name, namespace)  # ClusterIP 可能因 notebook 重建而变,失效重查
-        logger.warning("notebook proxy http %s/%s: %s", namespace, name, exc)
-        return Response(content=b"notebook upstream unavailable", status_code=502)
+
+    try:
+        return await _attempt()
+    except aiohttp.ClientError:
+        # ClusterIP 可能因 notebook 删后重建而变 → 失效缓存、重查、本请求内重试一次(自愈)。
+        _invalidate(name, namespace)
+        try:
+            return await _attempt()
+        except aiohttp.ClientError as exc:
+            logger.warning("notebook proxy http %s/%s: %s", namespace, name, exc)
+            return Response(content=b"notebook upstream unavailable", status_code=502)
 
 
 @router.websocket("/nb/{namespace}/{name}/{path:path}")
