@@ -520,7 +520,9 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Opt
         search = " ".join(filter(None, [ctx["command"], env_map.get("NOTEBOOK_ARGS")]))
         mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", search)
         token = mt.group(1) if mt else env_map.get("JUPYTER_TOKEN")
-        proxy_path = f"/nb/{d.namespace}/{name}/lab" + (f"?token={token}" if token else "")
+        # 落地路径按工具区分:Jupyter 的 UI 在 /lab;marimo / code-server 的 UI 在 base-url 根。
+        _landing = "/" if re.search(r"marimo|code-server", ctx["command"] or "") else "/lab"
+        proxy_path = f"/nb/{d.namespace}/{name}{_landing}" + (f"?token={token}" if token else "")
         ctx["access"] = {
             "public_url": (base_url.rstrip("/") + proxy_path) if base_url else proxy_path,
             "public_via": "console",

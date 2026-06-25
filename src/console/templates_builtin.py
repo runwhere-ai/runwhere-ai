@@ -548,7 +548,7 @@ environment:
     - -c
     - |
       pip install -q marimo
-      marimo edit --host 0.0.0.0 --port 8888 --no-token
+      marimo edit --host 0.0.0.0 --port 8888 --no-token --base-url=/nb/__NAMESPACE__/__NAME__
 resources:
   pool: __POOL__
   gpu: __GPU__
