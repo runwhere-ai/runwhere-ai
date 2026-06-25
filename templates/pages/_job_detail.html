@@ -89,26 +89,37 @@
     </div>
   </div>
 
-  {# 访问方式（有 NodePort 服务时） #}
+  {# 访问方式（inference/compute/notebook 统一：对外 / 节点 / 集群内 + notebook 的 token） #}
   {% if access %}
   <div class="card p-6">
     <h2 class="text-base font-medium mb-4">访问方式</h2>
     <div class="space-y-4 text-sm">
+      {% if access.public_url %}
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <div class="text-muted-foreground text-xs mb-1">对外地址</div>
+          <div class="text-muted-foreground text-xs mb-1">对外访问{% if access.public_via == 'console' %}（经控制台代理）{% endif %}</div>
           <a href="{{ access.public_url }}" target="_blank" rel="noopener"
              class="font-mono text-xs text-primary hover:underline break-all">{{ access.public_url }}</a>
         </div>
         {{ copybtn(access.public_url) }}
       </div>
-      {% if access.cluster_url %}
+      {% endif %}
+      {% if access.node_url %}
       <div class="flex items-center justify-between gap-4">
         <div class="min-w-0">
-          <div class="text-muted-foreground text-xs mb-1">集群内地址（节点内网 IP）</div>
-          <span class="font-mono text-xs break-all">{{ access.cluster_url }}</span>
+          <div class="text-muted-foreground text-xs mb-1">节点访问（节点内网 IP : NodePort）</div>
+          <span class="font-mono text-xs break-all">{{ access.node_url }}</span>
         </div>
-        {{ copybtn(access.cluster_url) }}
+        {{ copybtn(access.node_url) }}
+      </div>
+      {% endif %}
+      {% if access.pod_url %}
+      <div class="flex items-center justify-between gap-4">
+        <div class="min-w-0">
+          <div class="text-muted-foreground text-xs mb-1">集群内访问（Pod IP : 端口，Pod 重启会变）</div>
+          <span class="font-mono text-xs break-all">{{ access.pod_url }}</span>
+        </div>
+        {{ copybtn(access.pod_url) }}
       </div>
       {% endif %}
       {% if kind == "notebook" %}
