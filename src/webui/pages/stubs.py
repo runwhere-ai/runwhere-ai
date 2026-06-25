@@ -424,7 +424,8 @@ def _pod_selector(kind: str, name: str) -> dict:
     return {"job-name": name} if kind == "training" else {"app": name}
 
 
-async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Optional[str] = None) -> dict:
+async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Optional[str] = None,
+                          base_url: Optional[str] = None) -> dict:
     import os
     import re
 
@@ -498,8 +499,14 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Opt
                 "pool": ctx["resources"].get("pool", d.pool),
             }
 
-    # 访问方式
-    npa = ((d.access_methods or {}).get("node_port_access") or {})
+    # 访问方式(inference/compute/notebook 统一:对外 / 节点 / 集群内;notebook 另带 token)。
+    # gpuctl access_methods 给两条:node_port_access(节点内网 IP:NodePort,节点/局域网级)
+    # + pod_ip_access(Pod IP:端口,真·集群内,Pod 重启会变)。两条都展示——别再把节点地址错当"集群内"。
+    am = d.access_methods or {}
+    npa = am.get("node_port_access") or {}
+    pia = am.get("pod_ip_access") or {}
+    node_url = npa.get("url")     # http://<节点内网IP>:<NodePort>
+    pod_url = pia.get("url")      # http://<PodIP>:<端口>
     if kind == "notebook":
         # notebook 走 console 反向代理(/nb/<ns>/<name>/),不依赖 NodePort/portproxy。
         # token 多源提取:命令行 / NOTEBOOK_ARGS / JUPYTER_TOKEN。
@@ -513,24 +520,27 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Opt
         search = " ".join(filter(None, [ctx["command"], env_map.get("NOTEBOOK_ARGS")]))
         mt = re.search(r"--(?:Notebook|Server)App\.token=(\S+)", search)
         token = mt.group(1) if mt else env_map.get("JUPYTER_TOKEN")
+        proxy_path = f"/nb/{d.namespace}/{name}/lab" + (f"?token={token}" if token else "")
         ctx["access"] = {
-            "public_url": f"/nb/{d.namespace}/{name}/lab" + (f"?token={token}" if token else ""),
-            "cluster_url": npa.get("url"),
-            "node_port": npa.get("node_port"),
+            "public_url": (base_url.rstrip("/") + proxy_path) if base_url else proxy_path,
+            "public_via": "console",
+            "node_url": node_url,
+            "pod_url": pod_url,
             "token": token,
-            "proxied": True,
         }
-    elif npa.get("node_port"):
-        # inference/compute 暂保持 NodePort 直连。对外 host 优先级:
-        #   显式配置 RWAI_PUBLIC_NODE_HOST > 用户访问控制台用的 Host(适配任意域名/IP/ingress)
-        #   > localhost。不再硬编码任何特定节点地址。
-        public_host = os.getenv("RWAI_PUBLIC_NODE_HOST") or public_host or "localhost"
-        ctx["access"] = {
-            "public_url": f"http://{public_host}:{npa['node_port']}/",
-            "cluster_url": npa.get("url"),
-            "node_port": npa.get("node_port"),
-            "token": None,
-        }
+    else:
+        # inference/compute:对外用「你访问控制台用的 Host」+ NodePort(适配任意域名/IP/ingress);
+        #   RWAI_PUBLIC_NODE_HOST > 该 Host > localhost。无 NodePort 时仅展示集群内 / 节点地址。
+        host = os.getenv("RWAI_PUBLIC_NODE_HOST") or public_host or "localhost"
+        public_url = f"http://{host}:{npa['node_port']}/" if npa.get("node_port") else None
+        if public_url or node_url or pod_url:
+            ctx["access"] = {
+                "public_url": public_url,
+                "public_via": "nodeport",
+                "node_url": node_url,
+                "pod_url": pod_url,
+                "token": None,
+            }
 
     # SSH / 进入容器(notebook 无原生 sshd → 给 kubectl exec 等价命令)
     pod_name = ctx["pods"][0]["name"] if ctx["pods"] else (f"{name}-0" if kind == "notebook" else name)
@@ -542,7 +552,7 @@ def _detail_handler(kind: str):
     async def _h(name: str, request: Request, namespace: str = "default",
                  user: User = Depends(get_current_user)):
         host = (request.headers.get("host") or "").split(":")[0] or None
-        ctx = await _job_detail_ctx(kind, name, namespace, public_host=host)
+        ctx = await _job_detail_ctx(kind, name, namespace, public_host=host, base_url=str(request.base_url))
         return templates.TemplateResponse(request, "pages/_job_detail.html", {"user": user, **ctx})
     return _h
 
