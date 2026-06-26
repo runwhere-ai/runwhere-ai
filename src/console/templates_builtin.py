@@ -450,11 +450,16 @@ job:
   description: "nginx Web 服务"
 environment:
   image: __IMAGE__
-  command: ["nginx", "-g", "daemon off;"]
+  command:
+    - /bin/sh
+    - -c
+    - |
+      [ -f /usr/share/nginx/html/index.html ] || echo '<h1>runwhere-ai · nginx</h1><p>把你的静态文件放到 /usr/share/nginx/html 覆盖此页。</p>' > /usr/share/nginx/html/index.html
+      exec nginx -g 'daemon off;'
 service:
   replicas: 1
   port: 80
-  healthCheck: /
+  healthCheck: tcp     # nginx「端口在听」即健康,不看 / 返回什么(网站根目录由用户决定,空根会 403)
   startupTimeout: 5m   # 服务启动到就绪最多等这么久;超时才判失败重启。compute 服务通常起得快,慢的(如装依赖)可调大。
 resources:
   pool: __POOL__
