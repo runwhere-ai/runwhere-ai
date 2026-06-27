@@ -548,6 +548,39 @@ async def _job_detail_ctx(kind: str, name: str, namespace: str, public_host: Opt
     # SSH / 进入容器(notebook 无原生 sshd → 给 kubectl exec 等价命令)
     pod_name = ctx["pods"][0]["name"] if ctx["pods"] else (f"{name}-0" if kind == "notebook" else name)
     ctx["ssh_cmd"] = f"kubectl exec -it -n {d.namespace} {pod_name} -- /bin/sh"
+
+    # 存储挂载:集群级 NFS 已注册(kube-system/gpuctl-config)时,所有任务自动挂载
+    # /home/jovyan(读写,按命名空间隔离)+ /datasets(只读)。未配置则不展示。
+    try:
+        from gpuctl.builder.base_builder import BaseBuilder
+        _nfs = BaseBuilder.read_nfs_config()
+    except Exception as exc:
+        _nfs = None
+        logger.debug("read nfs config %s: %s", name, exc)
+    if _nfs:
+        _server, _path = _nfs
+        ctx["nfs"] = {
+            "server": _server,
+            "home": f"{_server}:{_path}/home/{d.namespace}",
+            "datasets": f"{_server}:{_path}/datasets",
+        }
+
+    # 分布式训练:从实时 Job spec 推导(重建的 yaml_content 不含 distributed,
+    # 且 _job_to_dict 不带 spec)。Indexed 完成模式 + completions>1 即多机多卡;
+    # 各 worker pod(<name>-0…<name>-N)已在 ctx["pods"] 中。
+    if kind == "training":
+        try:
+            from kubernetes import client as _k8s
+            _spec = _k8s.BatchV1Api().read_namespaced_job(name, d.namespace).spec
+            if getattr(_spec, "completion_mode", None) == "Indexed" and (_spec.completions or 1) > 1:
+                ctx["distributed"] = {
+                    "mode": "multi-node",
+                    "workers": _spec.completions,
+                    "headless": f"{name}-headless.{d.namespace}.svc.cluster.local",
+                }
+        except Exception as exc:
+            logger.debug("distributed probe %s: %s", name, exc)
+
     return ctx
 
 

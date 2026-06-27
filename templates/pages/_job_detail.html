@@ -89,6 +89,31 @@
     </div>
   </div>
 
+  {# 分布式配置（多机多卡训练:Indexed Job + Headless Service;平台自动注入 DDP 环境变量） #}
+  {% if distributed %}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-4">分布式配置</h2>
+    {{ field("模式", "多机多卡（multi-node）", mono=false) }}
+    {{ field("Worker 数", distributed.workers) }}
+    {{ field("Headless 服务", distributed.headless) }}
+    <p class="mt-3 text-xs text-muted-foreground">
+      平台已为各 Worker 注入 <span class="font-mono">MASTER_ADDR / MASTER_PORT / WORLD_SIZE / RANK / LOCAL_RANK / GPUCTL_NPROC_PER_NODE</span>；
+      下方 Pods 列出全部 {{ distributed.workers }} 个 Worker（<span class="font-mono">{{ name }}-0 … {{ name }}-{{ distributed.workers - 1 }}</span>）。
+      所有 Worker 共享同一块 NFS <span class="font-mono">/home/jovyan</span>，checkpoint 无需节点间同步。
+    </p>
+  </div>
+  {% endif %}
+
+  {# 存储挂载（集群级 NFS 已注册时,所有任务自动挂载,无需在 YAML 配置） #}
+  {% if nfs %}
+  <div class="card p-6">
+    <h2 class="text-base font-medium mb-4">存储挂载</h2>
+    {{ field("/home/jovyan", nfs.home + "（读写）") }}
+    {{ field("/datasets", nfs.datasets + "（只读）") }}
+    <p class="mt-3 text-xs text-muted-foreground">由集群级 NFS（{{ nfs.server }}）透明挂载，按命名空间隔离；写入 /home/jovyan 的文件在任务重启后保留，并与同命名空间的其他任务共享。</p>
+  </div>
+  {% endif %}
+
   {# 访问方式（只留 节点 / 集群内 两种地址；一键打开见右上角「打开访问页面」按钮——notebook 的 token 已带在该 URL 里） #}
   {% if access and (access.node_url or access.pod_url) %}
   <div class="card p-6">
