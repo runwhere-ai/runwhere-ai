@@ -12,6 +12,16 @@ module.exports = {
     "./src/**/*.py",
     "./static/js/**/*.js",
   ],
+  // 状态/类型徽章是用 `badge-{{ tone }}` / `badge-kind-{{ kind }}` 动态拼出来的,Tailwind 扫不到
+  // 字面类名 → 会被 purge。结果只有恰好在别处字面出现的 running/neutral/warning 幸存,其余
+  // (danger/succeeded/pending、各 kind)被剔除 → 对应状态渲染成「无样式纯文本」。列进 safelist
+  // 保证所有 tone/kind 徽章的 CSS 都保留。
+  safelist: [
+    "badge-running", "badge-succeeded", "badge-pending",
+    "badge-warning", "badge-danger", "badge-neutral",
+    "badge-kind-training", "badge-kind-inference",
+    "badge-kind-notebook", "badge-kind-compute",
+  ],
   darkMode: "class",
   theme: {
     extend: {
