@@ -141,7 +141,7 @@ resources:
     ),
     Template(
         name="training-pytorch-ddp", display="PyTorch 分布式训练(DDP)", kind="training",
-        description="2 节点 torchrun DDP;平台注入 MASTER_ADDR / RANK / WORLD_SIZE。",
+        description="多机多卡 torchrun DDP;改 distributed.workers 调整节点数,平台注入 MASTER_ADDR / RANK / WORLD_SIZE,checkpoint 写 /home/jovyan 自动共享。",
         tags=("需 GPU", "分布式"), gpu=2, cpu=8, memory="24Gi",
         image="pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime",
         yaml="""kind: training
@@ -162,12 +162,10 @@ environment:
         --nproc_per_node=$GPUCTL_NPROC_PER_NODE \\
         --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \\
         train.py
-distributed:
-  mode: multi-node
-  workers: 2
 resources:
   pool: __POOL__
-  gpu: __GPU__
+  nodes: 2               # 节点数;>1 启用多机(Indexed Job + Headless + DDP env 注入)
+  gpu: __GPU__           # 每节点 GPU 数(总卡 = nodes × gpu)
   cpu: __CPU__
   memory: __MEMORY__
 """,
@@ -295,6 +293,47 @@ resources:
 """,
     ),
     # ── Inference ─────────────────────────────────────────────────────────────
+    Template(
+        name="inference-vllm-multinode", display="vLLM 多机推理(模型并行)", kind="inference",
+        description="一个模型跨节点切分 serving:resources.nodes>1 → StatefulSet + Ray;rank0=head 对外,其余 worker 入群。改 --model 换大模型、nodes 调节点数。",
+        tags=("需 GPU", "多机", "OpenAI API"), gpu=2, cpu=8, memory="32Gi",
+        image="vllm/vllm-openai:latest",
+        yaml="""kind: inference
+version: v0.1
+job:
+  name: __NAME__
+  namespace: __NAMESPACE__
+  priority: high
+  description: "vLLM 多机模型并行 serving(Ray)"
+environment:
+  image: __IMAGE__
+  command:
+    - bash
+    - -c
+    - |
+      # rank 0 = head(起 Ray 头 + 对外 vLLM 服务);其余 = worker,加入 head 的 Ray 集群。
+      # 平台注入:RUNWHERE_NODE_RANK / RUNWHERE_NUM_NODES / RUNWHERE_GPUS_PER_NODE / RUNWHERE_HEAD_ADDR
+      if [ "$RUNWHERE_NODE_RANK" = "0" ]; then
+        ray start --head --port=6379
+        python3 -m vllm.entrypoints.openai.api_server \\
+          --model=Qwen/Qwen2.5-0.5B-Instruct \\
+          --tensor-parallel-size=$RUNWHERE_GPUS_PER_NODE \\
+          --pipeline-parallel-size=$RUNWHERE_NUM_NODES \\
+          --host=0.0.0.0 --port=8000
+      else
+        until ray start --address="$RUNWHERE_HEAD_ADDR:6379" --block; do echo "waiting for head..."; sleep 5; done
+      fi
+service:
+  replicas: 1            # 多机时固定 1(StatefulSet 副本数取 resources.nodes)
+  port: 8000             # 只在 head(pod-0)上暴露
+resources:
+  pool: __POOL__
+  nodes: 2               # 节点数;>1 启用多机(与 gpu/cpu/memory 并列;总卡 = nodes × gpu)
+  gpu: __GPU__           # 每节点 GPU 数
+  cpu: __CPU__
+  memory: __MEMORY__
+""",
+    ),
     Template(
         name="inference-vllm", display="vLLM 推理服务", kind="inference",
         description="vLLM OpenAI 兼容 API,默认 Qwen2.5-0.5B;改 --model 换模型。",

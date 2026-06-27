@@ -18,6 +18,8 @@
     <div class="banner banner-success text-sm">已保存 kubeconfig 配置。</div>
   {% elif request.query_params.get("message") == "cleared" or message == "cleared" %}
     <div class="banner banner-success text-sm">已清除 gpuctl kubeconfig 配置，将回退到标准 KUBECONFIG / ~/.kube/config。</div>
+  {% elif request.query_params.get("message") == "nfs-saved" or message == "nfs-saved" %}
+    <div class="banner banner-success text-sm">已注册 NFS 存储，之后新建的任务会自动挂载 /home/jovyan 与 /datasets。</div>
   {% endif %}
 
   {% if error %}
@@ -88,6 +90,72 @@
           <dd class="mt-1 break-all font-mono text-xs">{{ config_path }}</dd>
         </div>
       </dl>
+    </div>
+  </div>
+
+  {# NFS 持久化存储:写 kube-system/gpuctl-config,集群级、对所有任务透明生效 #}
+  <div class="grid gap-4 lg:grid-cols-[1fr_22rem]">
+    <div class="card p-5">
+      <div class="flex items-center gap-2">
+        <span class="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+          {{ icon("database", class="h-4 w-4") }}
+        </span>
+        <div>
+          <h2 class="text-base font-medium">NFS 持久化存储</h2>
+          <p class="text-sm text-muted-foreground">注册后所有任务自动挂载 <span class="font-mono">/home/jovyan</span>（按命名空间，读写）+ <span class="font-mono">/datasets</span>（只读）。无需在任务 YAML 里写任何存储配置。</p>
+        </div>
+      </div>
+
+      <form method="post" action="/cluster-config/nfs" class="mt-5 space-y-4">
+        <div>
+          <label for="nfs_server" class="form-label">NFS 服务器（IP 或主机名）</label>
+          <input
+            id="nfs_server"
+            name="nfs_server"
+            type="text"
+            required
+            value="{{ nfs_server or '' }}"
+            placeholder="192.168.1.100"
+            class="form-input font-mono text-sm" />
+        </div>
+        <div>
+          <label for="nfs_path" class="form-label">NFS 导出根路径（须以 / 开头）</label>
+          <input
+            id="nfs_path"
+            name="nfs_path"
+            type="text"
+            required
+            value="{{ nfs_path or '' }}"
+            placeholder="/exports"
+            class="form-input font-mono text-sm" />
+        </div>
+        <div class="flex items-center gap-2 pt-1">
+          <button type="submit" class="btn btn-primary">{{ icon("check", class="h-4 w-4") }} 注册 / 更新</button>
+        </div>
+      </form>
+      <p class="mt-3 text-xs text-muted-foreground">等价于 <span class="font-mono">gpuctl init --nfs-server … --nfs-path …</span>；幂等，更新后对新建任务立即生效。NFS 服务本身由运维搭建，这里只登记地址。</p>
+    </div>
+
+    <div class="card p-5">
+      <h2 class="text-base font-medium">当前 NFS</h2>
+      {% if nfs_server and nfs_path %}
+      <dl class="mt-4 space-y-3 text-sm">
+        <div>
+          <dt class="text-muted-foreground">服务器</dt>
+          <dd class="mt-1 break-all font-mono text-xs">{{ nfs_server }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">导出根路径</dt>
+          <dd class="mt-1 break-all font-mono text-xs">{{ nfs_path }}</dd>
+        </div>
+        <div>
+          <dt class="text-muted-foreground">配置位置</dt>
+          <dd class="mt-1 break-all font-mono text-xs">kube-system/gpuctl-config</dd>
+        </div>
+      </dl>
+      {% else %}
+      <p class="mt-4 text-sm text-muted-foreground">未配置。填写左侧表单后，任务将获得持久化存储；未配置时任务照常运行，只是不挂载 NFS。</p>
+      {% endif %}
     </div>
   </div>
 </div>
