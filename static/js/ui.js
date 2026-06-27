@@ -5,6 +5,13 @@
 (function () {
   if (window.rwToast) return;
 
+  // 双提交 CSRF:把 csrf cookie 回显到 X-CSRF-Token 头(所有 mutating fetch 用)。
+  // kubeconfig/bypass 模式后端整体跳过校验会忽略它;session 模式下必带否则 403。单一来源,模板别再各复制一份。
+  window.rwCsrf = function () {
+    var m = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  };
+
   var css = ''
     + '.rw-toasts{position:fixed;bottom:18px;right:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;}'
     + '.rw-toast{min-width:220px;max-width:380px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:500;'

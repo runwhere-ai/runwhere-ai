@@ -107,7 +107,7 @@
         this.busy = true; this.result = null;
         try {
           const r = await fetch('/quickstart/validate', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': rwCsrf() },
             body: JSON.stringify({ yamlContent: this.f.yaml }),
           });
           const d = await r.json();

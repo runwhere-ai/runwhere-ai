@@ -66,7 +66,7 @@
           <a href="/quickstart/{{ c.name }}/edit" class="btn btn-outline h-8 px-2.5">编辑</a>
           <button type="button" class="btn btn-destructive h-8 px-2.5"
                   @click="if (confirm('删除模板 {{ c.name }}?已启动的任务不受影响。')) {
-                            fetch('/api/v1/templates/{{ c.name }}', { method: 'DELETE' })
+                            fetch('/api/v1/templates/{{ c.name }}', { method: 'DELETE', headers: { 'X-CSRF-Token': window.rwCsrf() } })
                               .then(r => r.ok ? location.reload() : r.json().then(d => alert(d.detail || '删除失败')));
                           }">删除</button>
         {% endif %}
