@@ -93,7 +93,7 @@
     btn.innerHTML = '<span class="rw-spin"></span>';
 
     try {
-      var r = await fetch('/api/v1/jobs/' + encodeURIComponent(name) + '?namespace=' + encodeURIComponent(ns), { method: 'DELETE' });
+      var r = await fetch('/api/v1/jobs/' + encodeURIComponent(name) + '?namespace=' + encodeURIComponent(ns), { method: 'DELETE', headers: { 'X-CSRF-Token': rwCsrf() } });
       if (!r.ok) { window.rwToast('删除失败:HTTP ' + r.status, 'err'); restore(); return; }
     } catch (e) { window.rwToast('删除失败:' + e, 'err'); restore(); return; }
 
@@ -112,6 +112,41 @@
         })
         .catch(function () { if (Date.now() > deadline) { restore(); return; } setTimeout(poll, 2000); });
     })();
+  };
+
+  // 删除资源池:确认 → DELETE /api/v1/pools/{name}(摘掉该池所有节点的 pool 标签,节点回落 default,
+  // 不动节点与运行中的任务)。池内仍有关联任务时后端返回 409 → toast 提示先删任务;成功则移除该行。
+  window.rwDeletePool = async function (name, btn) {
+    var ok = await window.rwConfirm({
+      title: '删除资源池',
+      message: '确定删除资源池「' + name + '」?将解除其下所有节点的归属(节点回落 default 池),不影响节点与运行中的任务。',
+      okText: '删除', danger: true,
+    });
+    if (!ok) return;
+
+    var orig = btn.innerHTML;
+    function restore() { btn.innerHTML = orig; btn.disabled = false; btn.style.opacity = ''; }
+    btn.disabled = true; btn.style.opacity = '.7';
+    btn.innerHTML = '<span class="rw-spin"></span>';
+
+    try {
+      var r = await fetch('/api/v1/pools/' + encodeURIComponent(name), {
+        method: 'DELETE',
+        headers: { 'X-CSRF-Token': rwCsrf() },
+      });
+      if (r.ok) {
+        var tr = btn.closest('tr'); if (tr) tr.remove();
+        window.rwToast('已删除资源池「' + name + '」', 'ok');
+        return;
+      }
+      var d = null; try { d = await r.json(); } catch (e) {}
+      var detail = (d && d.detail) ? d.detail : ('HTTP ' + r.status);
+      window.rwToast('删除失败:' + detail, 'err');
+      restore();
+    } catch (e) {
+      window.rwToast('删除失败:' + e, 'err');
+      restore();
+    }
   };
 
   // 列表页 GPU 进度条:按 (ns,pod) 去重轮询遥测,一次 fetch 更新该 pod 的利用率+占用率两条。

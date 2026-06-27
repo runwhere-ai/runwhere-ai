@@ -68,6 +68,12 @@ def del_action(name: str, namespace: str, pod: str) -> dict:
     """
     return {"delbtn": {"name": name, "namespace": namespace, "pod": pod}}
 
+def pool_del_action(name: str) -> dict:
+    """删除资源池按钮(列表「操作」列)。确认后 DELETE /api/v1/pools/{name}:摘掉该池所有节点的
+    runwhere.ai/pool 标签(节点回落 default 池,不动节点与运行中的任务);池内有关联任务时 gpuctl
+    拒绝(→ 409,前端提示先删任务)。default 是隐式兜底池,不给删除按钮。"""
+    return {"pooldel": {"name": name}}
+
 def bar(pct: int, label: str | None = None) -> dict:
     return {"bar": pct, "label": label}
 
@@ -140,6 +146,7 @@ _POOL_COLUMNS = [
     {"label": "已用 GPU", "key": "used",  "align": "right"},
     {"label": "空闲 GPU", "key": "free",  "align": "right"},
     {"label": "节点数",   "key": "count", "align": "right"},
+    {"label": "操作",     "key": "ops",   "align": "right"},
 ]
 _NODE_COLUMNS = [
     {"label": "节点名",   "key": "name"},
@@ -255,6 +262,8 @@ async def _pool_rows(namespace: Optional[str] = None) -> list[list[Any]]:
             p.get("gpu_used", 0),
             p.get("gpu_free", 0),
             len(p.get("nodes") or []),
+            # default 是隐式兜底池(节点无 pool 标签即归它),不可删 → 占位破折号保持列对齐
+            mu("—") if p["name"] == "default" else pool_del_action(p["name"]),
         ]
         for p in pools
     ]
@@ -320,7 +329,7 @@ _COMPUTES = _Page(
 _POOLS = _Page(
     path="/pools", label="资源池", title="资源管理",
     subtitle="资源池与节点统一管理，按机型 / 用途划池并绑定物理节点。",
-    cta={"label": "新建池", "href": "/pools?new=1", "icon": "plus"},
+    cta={"label": "新建池", "href": "/pools/new", "icon": "plus"},
     row_icon={"name": "database", "classes": _ICON_BLUE},
     columns=_POOL_COLUMNS, rows_fn=_pool_rows,
 )
@@ -667,6 +676,43 @@ for _jp in _USER_PAGES:
 
 
 # ── detail pages ──────────────────────────────────────────────────────────────
+@router.get("/pools/new")
+async def pool_new(request: Request, user: User = Depends(require_admin)):
+    """新建资源池表单页。
+
+    资源池 = 一组打了 runwhere.ai/pool=<name> 标签的节点(gpuctl 没有独立的池对象,list_pools
+    按节点标签聚合)——故必须选中至少一个节点,空池无法持久化。提交走与 CLI apply 相同的
+    POST /api/v1/pools(→ PoolClient.create_pool)。
+
+    必须注册在 /pools/{pool_name}/nodes 之前(literal 路径优先,避免 new 被当成 pool_name)。"""
+    nodes: list[dict[str, Any]] = []
+    existing_pools: list[str] = []
+    try:
+        from gpuctl.client.pool_client import PoolClient
+        from gpuctl.constants import Labels
+
+        pc = PoolClient.get_instance()
+        for n in pc.list_nodes():
+            res = n.get("resources", {})
+            gtypes = n.get("gpu_types") or []
+            nodes.append({
+                "name": n["name"],
+                "status": n.get("status", "active"),
+                "gpuTotal": res.get("gpu_total", 0),
+                "gpuFree": res.get("gpu_free", 0),
+                "gpuType": gtypes[0] if gtypes else "",
+                # 节点当前所属池(单值标签);选入新池即从原池迁出,前端据此给迁移提示。
+                "pool": (n.get("labels") or {}).get(Labels.POOL, "default"),
+            })
+        existing_pools = [p["name"] for p in pc.list_pools()]
+    except Exception as exc:  # 取不到节点也照常渲染(空态),不 500 整页
+        logger.warning("pool_new: failed to load nodes (%s)", exc)
+    return templates.TemplateResponse(
+        request, "pages/pool_new.html",
+        {"user": user, "nodes": nodes, "existing_pools": existing_pools},
+    )
+
+
 @router.get("/pools/{pool_name}/nodes")
 async def pool_nodes(pool_name: str, request: Request, user: User = Depends(require_admin)):
     rows: list[list[Any]] = []

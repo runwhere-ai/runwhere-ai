@@ -102,10 +102,6 @@
 
 <script>
   // 新建命名空间:表单 → 配额 YAML(实时预览)→ POST /api/v1/quotas(建配额即建命名空间)。
-  function rwCsrf() {
-    var m = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : '';
-  }
   window.nsNew = function () {
     return {
       f: { name: '', quotaName: '', gpu: '', cpu: '', memory: '' },

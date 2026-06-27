@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}新建资源池 · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/pools" class="text-muted-foreground hover:text-foreground">资源池</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <span class="text-foreground font-medium">新建</span>
+{% endblock %}
+
+{% macro fieldrow(label) %}
+  <div>
+    <label class="block text-xs text-muted-foreground mb-1">{{ label }}</label>
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{% block content %}
+{# tojson 输出含双引号,放进单引号属性 #}
+<div class="mx-auto max-w-6xl space-y-5"
+     x-data='poolNew({{ {"nodes": nodes, "existingPools": existing_pools} | tojson }})'>
+
+  {# Header #}
+  <div class="flex items-center gap-3 flex-wrap">
+    <a href="/pools" class="btn btn-secondary h-9 px-4">返回</a>
+    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+      {{ icon("database", class="h-4 w-4") }}
+    </span>
+    <h1 class="text-xl font-semibold tracking-tight">新建资源池</h1>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+    {# 左:表单 #}
+    <div class="card p-5 lg:col-span-2 space-y-4 self-start">
+      <h2 class="text-base font-medium">资源池信息</h2>
+
+      {% call fieldrow("资源池名") %}
+        <input type="text" x-model="f.name" placeholder="a100-training"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50"
+               :class="nameOk ? '' : 'border-red-500 ring-1 ring-red-500/40'" />
+        <p class="mt-1 text-xs"
+           :class="!nameOk ? 'text-red-500' : (nameExists ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')"
+           x-text="nameHint"></p>
+      {% endcall %}
+
+      {% call fieldrow("描述(可选)") %}
+        <input type="text" x-model="f.description" placeholder="如:A100 训练专用池"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50" />
+      {% endcall %}
+
+      <div class="pt-1 space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-medium">
+            绑定节点
+            <span class="text-muted-foreground font-normal" x-text="'(' + selectedCount + '/' + nodes.length + ')'"></span>
+          </h3>
+          <div class="flex items-center gap-3 text-xs" x-show="nodes.length">
+            <button type="button" class="text-blue-600 hover:underline dark:text-blue-400" @click="selectAll()">全选</button>
+            <button type="button" class="text-muted-foreground hover:underline" @click="clearAll()">清空</button>
+          </div>
+        </div>
+        <p class="text-xs text-muted-foreground">资源池由节点标签构成——至少选择一个节点。选中已属其它池的节点会将其迁入本池。</p>
+
+        <template x-if="nodes.length === 0">
+          <div class="rounded-md border border-dashed border-input px-3 py-6 text-center text-sm text-muted-foreground">
+            未发现可用节点(集群未就绪或暂无节点接入)。
+          </div>
+        </template>
+
+        <div class="space-y-1.5 max-h-72 overflow-auto" x-show="nodes.length">
+          <template x-for="n in nodes" :key="n.name">
+            <label class="flex items-center gap-3 rounded-md border px-3 py-2 cursor-pointer transition-colors"
+                   :class="sel[n.name] ? 'border-blue-500 bg-blue-500/5' : 'border-input hover:bg-muted'">
+              <input type="checkbox" class="h-4 w-4 rounded border-input accent-blue-600"
+                     :checked="!!sel[n.name]" @change="sel[n.name] = $event.target.checked" />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-sm truncate" x-text="n.name"></span>
+                  <span class="text-[11px] rounded px-1.5 py-0.5 whitespace-nowrap"
+                        :class="n.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'"
+                        x-text="n.status === 'active' ? '就绪' : '未就绪'"></span>
+                </div>
+                <div class="mt-0.5 text-xs text-muted-foreground flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+                  <span>GPU 空闲 <span class="tabular-nums" x-text="n.gpuFree"></span>/<span class="tabular-nums" x-text="n.gpuTotal"></span></span>
+                  <span x-show="n.gpuType" class="font-mono" x-text="n.gpuType"></span>
+                  <span>当前池 <span class="font-mono" x-text="n.pool"></span></span>
+                </div>
+              </div>
+              <span x-show="sel[n.name] && n.pool !== 'default' && n.pool !== nameClean"
+                    class="text-xs text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                迁出 <span class="font-mono" x-text="n.pool"></span>
+              </span>
+            </label>
+          </template>
+        </div>
+      </div>
+
+      <div class="pt-2">
+        <button type="button" class="btn btn-primary h-9 px-4 w-full justify-center"
+                @click="submit()" :disabled="busy || !nameOk || selectedCount === 0">
+          {{ icon("plus", class="h-4 w-4") }}
+          <span x-text="busy ? '创建中…' : '创建资源池'">创建资源池</span>
+        </button>
+      </div>
+
+      {# 创建结果 #}
+      <template x-if="result">
+        <div class="rounded-md p-3 text-sm"
+             :class="result.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'">
+          <span class="font-medium" x-text="result.ok ? '✓ ' + result.title : '✗ ' + result.title"></span>
+          <pre class="mt-1 whitespace-pre-wrap break-all font-mono text-xs" x-show="result.detail" x-text="result.detail"></pre>
+        </div>
+      </template>
+
+      <p class="text-xs text-muted-foreground leading-relaxed">
+        资源池 = 一组打了 <span class="font-mono">runwhere.ai/pool</span> 标签的节点(gpuctl 无独立池对象)。提交走与 CLI
+        <span class="font-mono">apply -f pool.yaml</span> 相同的 <span class="font-mono">POST /api/v1/pools</span>;删除池只摘标签、不动节点。
+      </p>
+    </div>
+
+    {# 右:YAML 预览(等价 CLI YAML)#}
+    <div class="card overflow-hidden lg:col-span-3 flex flex-col self-start">
+      <div class="flex items-center gap-2 px-5 py-3 border-b border-border">
+        <h2 class="text-base font-medium">资源池 YAML</h2>
+        <span class="badge badge-neutral">随表单同步</span>
+        <span class="ml-auto text-xs text-muted-foreground">等价 <span class="font-mono">gpuctl apply -f</span></span>
+      </div>
+      <pre class="m-0 w-full flex-1 min-h-[24rem] px-5 py-4 text-xs leading-relaxed font-mono bg-zinc-950 text-zinc-100 overflow-auto"
+           x-text="yamlText"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 新建资源池:选节点 → kind: pool YAML(实时预览)→ POST /api/v1/pools(结构化,与 CLI apply 同走
+  // PoolClient.create_pool:给选中节点打 runwhere.ai/pool=<name> 标签)。
+  window.poolNew = function (cfg) {
+    return {
+      nodes: (cfg && cfg.nodes) || [],
+      existing: (cfg && cfg.existingPools) || [],
+      f: { name: '', description: '' },
+      sel: {},                  // {nodeName: true}
+      busy: false, result: null,
+      // 池名将作为标签值 runwhere.ai/pool=<name>:首尾字母数字,中间可含 - _ .,≤63 字符。
+      get nameRe() { return /^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$/; },
+      get nameClean() { return (this.f.name || '').trim(); },
+      get nameOk() {
+        var n = this.nameClean;
+        return this.nameRe.test(n) && n !== 'default';
+      },
+      get nameExists() { return this.existing.indexOf(this.nameClean) !== -1; },
+      get nameHint() {
+        var n = this.nameClean;
+        if (!n) return '需以小写字母/数字开头,可含中划线、下划线、点(≤63 字符)';
+        if (n === 'default') return 'default 为隐式默认池,请换一个名称';
+        if (!this.nameRe.test(n)) return '需以小写字母/数字开头,可含中划线、下划线、点(≤63 字符)';
+        if (this.nameExists) return '该池已存在——选中节点将并入现有池';
+        return '合法';
+      },
+      get selectedNodes() {
+        var sel = this.sel;
+        return this.nodes.filter(function (n) { return !!sel[n.name]; });
+      },
+      get selectedCount() { return this.selectedNodes.length; },
+      selectAll() {
+        var s = {};
+        this.nodes.forEach(function (n) { s[n.name] = true; });
+        this.sel = s;
+      },
+      clearAll() { this.sel = {}; },
+      get yamlText() {
+        var name = this.nameClean || '<资源池名>';
+        var lines = ['kind: pool', 'version: v0.1', '', 'pool:', '  name: ' + name];
+        var desc = (this.f.description || '').trim();
+        if (desc) lines.push('  description: "' + desc.replace(/"/g, '\\"') + '"');
+        lines.push('', 'nodes:');
+        var sel = this.selectedNodes;
+        if (sel.length === 0) {
+          lines.push('  {}  # 请至少选择一个节点');
+        } else {
+          sel.forEach(function (n) {
+            if (n.gpuType) {
+              lines.push('  ' + n.name + ':');
+              lines.push('    gpuType: ' + n.gpuType);
+            } else {
+              lines.push('  ' + n.name + ': {}');
+            }
+          });
+        }
+        return lines.join('\n') + '\n';
+      },
+      async submit() {
+        if (!this.nameOk || this.selectedCount === 0) return;
+        this.busy = true; this.result = null;
+        var names = [], types = [];
+        this.selectedNodes.forEach(function (n) { names.push(n.name); types.push(n.gpuType || ''); });
+        try {
+          var r = await fetch('/api/v1/pools', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': rwCsrf() },
+            body: JSON.stringify({
+              name: this.nameClean,
+              description: (this.f.description || '').trim() || null,
+              nodes: names,
+              gpuType: types,
+            }),
+          });
+          var d = null;
+          try { d = await r.json(); } catch (e) {}
+          if (r.status === 201) {
+            this.result = { ok: true, title: '资源池「' + this.nameClean + '」已创建,正在跳转…', detail: '' };
+            window.rwToast('资源池「' + this.nameClean + '」已创建', 'ok');
+            setTimeout(function () { window.location = '/pools'; }, 700);
+          } else {
+            var detail = (d && d.detail) ? d.detail : JSON.stringify(d);
+            this.result = { ok: false, title: '创建失败(HTTP ' + r.status + ')', detail: detail };
+          }
+        } catch (e) {
+          this.result = { ok: false, title: '创建请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+    };
+  };
+</script>
+{% endblock %}
