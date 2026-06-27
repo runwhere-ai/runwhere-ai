@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}{{ namespace }} · 编辑配额 · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/namespaces" class="text-muted-foreground hover:text-foreground">命名空间</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <a href="/namespaces/{{ namespace }}/quotas" class="text-muted-foreground hover:text-foreground">{{ namespace }} · 配额</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <span class="text-foreground font-medium">编辑</span>
+{% endblock %}
+
+{% macro fieldrow(label) %}
+  <div>
+    <label class="block text-xs text-muted-foreground mb-1">{{ label }}</label>
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{% block content %}
+{# 注意:tojson 输出含双引号,放进单引号属性 #}
+<div class="mx-auto max-w-6xl space-y-5"
+     x-data='quotaEdit({{ {"namespace": namespace, "isDefault": is_default, "quotaName": quota_name, "cpu": cpu, "memory": memory, "gpu": gpu} | tojson }})'>
+
+  {# Header #}
+  <div class="flex items-center gap-3 flex-wrap">
+    <a href="/namespaces/{{ namespace }}/quotas" class="btn btn-secondary h-9 px-4">返回</a>
+    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+      {{ icon("shield", class="h-4 w-4") }}
+    </span>
+    <h1 class="text-xl font-semibold tracking-tight">编辑配额</h1>
+    <span class="badge badge-neutral font-mono">{{ namespace }}</span>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+    {# 左:表单 #}
+    <div class="card p-5 lg:col-span-2 space-y-4 self-start">
+      <h2 class="text-base font-medium">配额上限</h2>
+
+      <div class="grid grid-cols-2 gap-3">
+        {% call fieldrow("命名空间") %}
+          <input type="text" :value="cfg.namespace" disabled
+                 class="h-9 w-full rounded-md border border-input bg-muted px-3 text-sm font-mono text-muted-foreground" />
+        {% endcall %}
+        {% call fieldrow("配额名") %}
+          <input type="text" :value="cfg.quotaName" disabled
+                 class="h-9 w-full rounded-md border border-input bg-muted px-3 text-sm font-mono text-muted-foreground" />
+        {% endcall %}
+      </div>
+
+      <p class="text-xs text-muted-foreground">留空即不限制(移除该项上限)。修改后即时生效于该命名空间。</p>
+      <div class="grid grid-cols-3 gap-3">
+        {% call fieldrow("GPU") %}
+          <input type="number" min="0" x-model="f.gpu" placeholder="不限"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+        {% call fieldrow("CPU") %}
+          <input type="text" x-model="f.cpu" placeholder="不限"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+        {% call fieldrow("内存") %}
+          <input type="text" x-model="f.memory" placeholder="不限"
+                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+        {% endcall %}
+      </div>
+
+      <div class="pt-2">
+        <button type="button" class="btn btn-primary h-9 px-4 w-full justify-center"
+                @click="submit()" :disabled="busy">
+          {{ icon("settings", class="h-4 w-4") }}
+          <span x-text="busy ? '保存中…' : '保存配额'">保存配额</span>
+        </button>
+      </div>
+
+      {# 结果 #}
+      <template x-if="result">
+        <div class="rounded-md p-3 text-sm"
+             :class="result.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'">
+          <span class="font-medium" x-text="result.ok ? '✓ ' + result.title : '✗ ' + result.title"></span>
+          <pre class="mt-1 whitespace-pre-wrap break-all font-mono text-xs" x-show="result.detail" x-text="result.detail"></pre>
+        </div>
+      </template>
+
+      <p class="text-xs text-muted-foreground leading-relaxed">
+        保存走与 CLI <span class="font-mono">quota apply</span> 相同的 <span class="font-mono">PUT /api/v1/quotas</span>(存在则更新、不存在则创建)。
+      </p>
+    </div>
+
+    {# 右:YAML 预览 #}
+    <div class="card overflow-hidden lg:col-span-3 flex flex-col self-start">
+      <div class="flex items-center gap-2 px-5 py-3 border-b border-border">
+        <h2 class="text-base font-medium">配额 YAML</h2>
+        <span class="badge badge-neutral">随表单同步</span>
+      </div>
+      <pre class="m-0 w-full flex-1 min-h-[24rem] px-5 py-4 text-xs leading-relaxed font-mono bg-zinc-950 text-zinc-100 overflow-auto"
+           x-text="yamlText"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  function rwCsrf() {
+    var m = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  // 编辑配额:表单 → 配额 YAML(default 命名空间用 default: 块,其余用 namespace: 块)→ PUT /api/v1/quotas。
+  window.quotaEdit = function (cfg) {
+    return {
+      cfg: cfg,
+      f: { gpu: cfg.gpu || '', cpu: cfg.cpu || '', memory: cfg.memory || '' },
+      busy: false, result: null,
+      get yamlText() {
+        var body = [];
+        if (String(this.f.gpu).trim() !== '')    body.push('    gpu: ' + String(this.f.gpu).trim());
+        if (String(this.f.cpu).trim() !== '')    body.push('    cpu: ' + String(this.f.cpu).trim());
+        if (String(this.f.memory).trim() !== '') body.push('    memory: ' + this.f.memory.trim());
+        // default 命名空间走 default: 块(apply_default_quota);其余走 namespace: 映射。
+        var key = this.cfg.isDefault ? 'default' : this.cfg.namespace;
+        var block = body.length ? ('  ' + key + ':\n' + body.join('\n')) : ('  ' + key + ': {}');
+        var head = this.cfg.isDefault
+          ? ['kind: quota', 'version: v0.1', 'quota:', '  name: ' + this.cfg.quotaName, 'default:']
+          : ['kind: quota', 'version: v0.1', 'quota:', '  name: ' + this.cfg.quotaName, 'namespace:'];
+        // default: 块的内容缩进与 namespace: 下的 ns 一致(都用两层),但 default 没有第二级 key。
+        if (this.cfg.isDefault) {
+          var d = [];
+          if (String(this.f.gpu).trim() !== '')    d.push('  gpu: ' + String(this.f.gpu).trim());
+          if (String(this.f.cpu).trim() !== '')    d.push('  cpu: ' + String(this.f.cpu).trim());
+          if (String(this.f.memory).trim() !== '') d.push('  memory: ' + this.f.memory.trim());
+          return head.concat(d.length ? d : ['  {}']).join('\n') + '\n';
+        }
+        return head.concat([block]).join('\n') + '\n';
+      },
+      async submit() {
+        this.busy = true; this.result = null;
+        try {
+          var r = await fetch('/api/v1/quotas', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': rwCsrf() },
+            body: JSON.stringify({ yamlContent: this.yamlText, dryRun: false }),
+          });
+          var d = null;
+          try { d = await r.json(); } catch (e) {}
+          if (r.ok) {
+            this.result = { ok: true, title: '配额已保存,正在跳转…', detail: '' };
+            window.rwToast('配额已更新', 'ok');
+            var ns = this.cfg.namespace;
+            setTimeout(function () { window.location = '/namespaces/' + encodeURIComponent(ns) + '/quotas'; }, 700);
+          } else {
+            this.result = { ok: false, title: '保存失败(HTTP ' + r.status + ')',
+                            detail: (d && d.detail) ? d.detail : JSON.stringify(d) };
+          }
+        } catch (e) {
+          this.result = { ok: false, title: '保存请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+    };
+  };
+</script>
+{% endblock %}
