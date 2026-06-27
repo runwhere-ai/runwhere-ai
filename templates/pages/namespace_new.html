@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}新建命名空间 · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}
+  <a href="/namespaces" class="text-muted-foreground hover:text-foreground">命名空间</a>
+  <span class="mx-1 text-muted-foreground">/</span>
+  <span class="text-foreground font-medium">新建</span>
+{% endblock %}
+
+{% macro fieldrow(label) %}
+  <div>
+    <label class="block text-xs text-muted-foreground mb-1">{{ label }}</label>
+    {{ caller() }}
+  </div>
+{% endmacro %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-5" x-data="nsNew()">
+
+  {# Header #}
+  <div class="flex items-center gap-3 flex-wrap">
+    <a href="/namespaces" class="btn btn-secondary h-9 px-4">返回</a>
+    <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+      {{ icon("folder", class="h-4 w-4") }}
+    </span>
+    <h1 class="text-xl font-semibold tracking-tight">新建命名空间</h1>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+    {# 左:表单 #}
+    <div class="card p-5 lg:col-span-2 space-y-4 self-start">
+      <h2 class="text-base font-medium">命名空间信息</h2>
+
+      {% call fieldrow("命名空间名") %}
+        <input type="text" x-model="f.name" placeholder="team-alpha"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50"
+               :class="nameOk ? '' : 'border-red-500 ring-1 ring-red-500/40'" />
+        <p class="mt-1 text-xs" :class="nameOk ? 'text-muted-foreground' : 'text-red-500'"
+           x-text="nameHint"></p>
+      {% endcall %}
+
+      {% call fieldrow("配额名(可选)") %}
+        <input type="text" x-model="f.quotaName" :placeholder="(f.name || '命名空间') + '-quota'"
+               class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+      {% endcall %}
+
+      <div class="pt-1">
+        <h3 class="text-sm font-medium mb-1">资源配额</h3>
+        <p class="text-xs text-muted-foreground mb-2">留空即不限制(命名空间内资源无上限)。</p>
+        <div class="grid grid-cols-3 gap-3">
+          {% call fieldrow("GPU") %}
+            <input type="number" min="0" x-model="f.gpu" placeholder="0"
+                   class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+          {% endcall %}
+          {% call fieldrow("CPU") %}
+            <input type="text" x-model="f.cpu" placeholder="10"
+                   class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+          {% endcall %}
+          {% call fieldrow("内存") %}
+            <input type="text" x-model="f.memory" placeholder="20Gi"
+                   class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+          {% endcall %}
+        </div>
+      </div>
+
+      <div class="pt-2">
+        <button type="button" class="btn btn-primary h-9 px-4 w-full justify-center"
+                @click="submit()" :disabled="busy || !nameOk">
+          {{ icon("plus", class="h-4 w-4") }}
+          <span x-text="busy ? '创建中…' : '创建命名空间'">创建命名空间</span>
+        </button>
+      </div>
+
+      {# 创建结果 #}
+      <template x-if="result">
+        <div class="rounded-md p-3 text-sm"
+             :class="result.ok ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-red-500/10 text-red-700 dark:text-red-400'">
+          <span class="font-medium" x-text="result.ok ? '✓ ' + result.title : '✗ ' + result.title"></span>
+          <pre class="mt-1 whitespace-pre-wrap break-all font-mono text-xs" x-show="result.detail" x-text="result.detail"></pre>
+        </div>
+      </template>
+
+      <p class="text-xs text-muted-foreground leading-relaxed">
+        新建命名空间通过创建配额完成(gpuctl 的「配额 ↔ 命名空间」对称语义):提交走与 CLI 相同的
+        <span class="font-mono">POST /api/v1/quotas</span>,命名空间会自动建好(并挂载 NFS Home);删除该配额会一并回收命名空间。
+      </p>
+    </div>
+
+    {# 右:YAML 预览 #}
+    <div class="card overflow-hidden lg:col-span-3 flex flex-col self-start">
+      <div class="flex items-center gap-2 px-5 py-3 border-b border-border">
+        <h2 class="text-base font-medium">配额 YAML</h2>
+        <span class="badge badge-neutral">随表单同步</span>
+      </div>
+      <pre class="m-0 w-full flex-1 min-h-[24rem] px-5 py-4 text-xs leading-relaxed font-mono bg-zinc-950 text-zinc-100 overflow-auto"
+           x-text="yamlText"></pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 新建命名空间:表单 → 配额 YAML(实时预览)→ POST /api/v1/quotas(建配额即建命名空间)。
+  function rwCsrf() {
+    var m = document.cookie.match(/(?:^|;\s*)csrf=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  window.nsNew = function () {
+    return {
+      f: { name: '', quotaName: '', gpu: '', cpu: '', memory: '' },
+      busy: false, result: null, existing: [],
+      init() {
+        // 拉一份现有命名空间用于撞名校验(顶栏同款接口)。
+        fetch('/api/namespaces')
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) { if (d && d.namespaces) this.existing = d.namespaces; }.bind(this))
+          .catch(function () {});
+      },
+      get nameRe() { return /^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$/; },
+      get nameOk() {
+        var n = (this.f.name || '').trim();
+        return this.nameRe.test(n) && n !== 'default' && this.existing.indexOf(n) === -1;
+      },
+      get nameHint() {
+        var n = (this.f.name || '').trim();
+        if (!n) return '需以字母开头,仅含小写字母、数字、中划线(≤63 字符)';
+        if (n === 'default') return 'default 为 Kubernetes 保留命名空间,请换一个名称';
+        if (this.existing.indexOf(n) !== -1) return '该命名空间已存在,请换一个名称';
+        if (!this.nameRe.test(n)) return '需以字母开头,仅含小写字母、数字、中划线(≤63 字符)';
+        return '合法';
+      },
+      get yamlText() {
+        var name = (this.f.name || '').trim() || '<命名空间名>';
+        var qname = (this.f.quotaName || '').trim() || (name + '-quota');
+        var body = [];
+        if (String(this.f.gpu).trim() !== '')    body.push('    gpu: ' + String(this.f.gpu).trim());
+        if (String(this.f.cpu).trim() !== '')    body.push('    cpu: ' + String(this.f.cpu).trim());
+        if (String(this.f.memory).trim() !== '') body.push('    memory: ' + this.f.memory.trim());
+        var nsBlock = body.length ? ('  ' + name + ':\n' + body.join('\n')) : ('  ' + name + ': {}');
+        return [
+          'kind: quota',
+          'version: v0.1',
+          'quota:',
+          '  name: ' + qname,
+          'namespace:',
+          nsBlock,
+        ].join('\n') + '\n';
+      },
+      async submit() {
+        if (!this.nameOk) return;
+        this.busy = true; this.result = null;
+        try {
+          var r = await fetch('/api/v1/quotas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': rwCsrf() },
+            body: JSON.stringify({ yamlContent: this.yamlText, dryRun: false }),
+          });
+          var d = null;
+          try { d = await r.json(); } catch (e) {}
+          if (r.status === 201) {
+            this.result = { ok: true, title: '命名空间「' + this.f.name + '」已创建,正在跳转…', detail: '' };
+            window.rwToast('命名空间「' + this.f.name + '」已创建', 'ok');
+            setTimeout(function () { window.location = '/namespaces'; }, 700);
+          } else {
+            var detail = (d && d.detail) ? d.detail : JSON.stringify(d);
+            if (r.status === 500) detail += '\n(若该命名空间已存在配额,请先删除原配额——每个命名空间仅允许一个配额)';
+            this.result = { ok: false, title: '创建失败(HTTP ' + r.status + ')', detail: detail };
+          }
+        } catch (e) {
+          this.result = { ok: false, title: '创建请求失败', detail: String(e) };
+        } finally { this.busy = false; }
+      },
+    };
+  };
+</script>
+{% endblock %}

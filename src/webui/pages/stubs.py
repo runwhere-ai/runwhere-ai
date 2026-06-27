@@ -164,6 +164,7 @@ _QUOTA_COLUMNS = [
     {"label": "MEMORY",   "key": "memory", "align": "right"},
     {"label": "GPU",      "key": "gpu",    "align": "right"},
     {"label": "状态",     "key": "status"},
+    {"label": "操作",     "key": "ops",    "align": "right"},
 ]
 
 
@@ -326,7 +327,7 @@ _POOLS = _Page(
 _NAMESPACES = _Page(
     path="/namespaces", label="命名空间", title="命名空间",
     subtitle="租户隔离单元，绑定资源池与配额。",
-    cta={"label": "新建命名空间", "href": "/namespaces?new=1", "icon": "plus"},
+    cta={"label": "新建命名空间", "href": "/namespaces/new", "icon": "plus"},
     row_icon={"name": "folder", "classes": _ICON_INDIGO},
     columns=_NS_COLUMNS, rows_fn=_namespace_rows,
 )
@@ -670,14 +671,24 @@ async def pool_nodes(pool_name: str, request: Request, user: User = Depends(requ
     )
 
 
+@router.get("/namespaces/new")
+async def namespace_new(request: Request, user: User = Depends(require_admin)):
+    """新建命名空间表单页。提交走 gpuctl 的 POST /api/v1/quotas——「建配额即建命名空间」
+    (QuotaClient.create_quota → _ensure_namespace_exists 自动建 ns + 挂 NFS Home)。
+    必须注册在 /namespaces/{namespace}/quotas 之前(literal 路径,避免被参数路由吞掉)。"""
+    return templates.TemplateResponse(request, "pages/namespace_new.html", {"user": user})
+
+
 @router.get("/namespaces/{namespace}/quotas")
 async def namespace_quotas(namespace: str, request: Request, user: User = Depends(require_admin)):
     rows: list[list[Any]] = []
+    has_quota = False
     try:
         from gpuctl.client.quota_client import QuotaClient
 
         q = QuotaClient().get_quota(namespace)
         if q:
+            has_quota = True
             hard = q.get("hard", {})
             rows.append([
                 t(q.get("name", namespace)),
@@ -686,19 +697,63 @@ async def namespace_quotas(namespace: str, request: Request, user: User = Depend
                 str(hard.get("memory", "—")),
                 str(hard.get("nvidia.com/gpu", "0")),
                 status_badge(q.get("status", "Active")),
+                # 编辑动作放在「行内操作」列——对应到这一行(=该命名空间)的配额,语义明确。
+                action("编辑配额", f"/namespaces/{namespace}/quotas/edit", "settings"),
             ])
     except Exception as exc:
         logger.warning("namespace_quotas %s: %s", namespace, exc)
+    # 有配额→编辑入口在行内操作列(见上);页头不再放「编辑」(右上角是「新建」语义,且无法对应到具体行)。
+    # 无配额→表里没有行可承载行内动作,此时页头给「设置配额」作为该命名空间的创建入口。
+    cta = None if has_quota else {
+        "label": "设置配额",
+        "href": f"/namespaces/{namespace}/quotas/edit",
+        "icon": "settings",
+    }
     return templates.TemplateResponse(
         request, "pages/_listing.html",
         {
             "user": user,
             "page_title": f"{namespace} · 配额",
             "page_subtitle": "该命名空间的 GPU / 内存 / Pod 用量与上限（未设置配额则为空）。",
-            "primary_cta": None,
+            "primary_cta": cta,
             "row_icon": {"name": "shield", "classes": _ICON_AMBER},
             "columns": _QUOTA_COLUMNS,
             "rows": rows,
+        },
+    )
+
+
+@router.get("/namespaces/{namespace}/quotas/edit")
+async def namespace_quota_edit(namespace: str, request: Request, user: User = Depends(require_admin)):
+    """编辑/设置某命名空间的配额。预填当前上限,提交走 PUT /api/v1/quotas(幂等 upsert)。
+    必须注册在 /namespaces/{namespace}/quotas 之后亦可(路径多一段 /edit,不冲突)。"""
+    quota_name = f"{namespace}-quota"
+    cpu = memory = gpu = ""
+    try:
+        from gpuctl.client.quota_client import QuotaClient
+
+        q = QuotaClient().get_quota(namespace)
+        if q:
+            quota_name = q.get("name", quota_name)
+            hard = q.get("hard", {})
+            # gpuctl 对未设上限填 "unlimited" 字面量 → 归一成空串(表单留空 = 不限制)。
+            def _val(v: Any) -> str:
+                return "" if v in (None, "", "unlimited", "—") else str(v)
+            cpu = _val(hard.get("cpu"))
+            memory = _val(hard.get("memory"))
+            gpu = _val(hard.get("nvidia.com/gpu"))
+    except Exception as exc:
+        logger.warning("namespace_quota_edit %s: %s", namespace, exc)
+    return templates.TemplateResponse(
+        request, "pages/quota_edit.html",
+        {
+            "user": user,
+            "namespace": namespace,
+            "is_default": namespace == "default",
+            "quota_name": quota_name,
+            "cpu": cpu,
+            "memory": memory,
+            "gpu": gpu,
         },
     )
 
