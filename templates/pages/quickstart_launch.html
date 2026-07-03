@@ -55,11 +55,59 @@
         {% endcall %}
       </div>
 
-      <div class="grid grid-cols-3 gap-3">
-        {% call fieldrow("GPU") %}
+      {# GPU 分配:指定数量 / 交互式指定卡号。默认走 device-plugin 数量分配。 #}
+      <div>
+        <label class="block text-xs text-muted-foreground mb-1">GPU 分配</label>
+        <div class="inline-flex rounded-md border border-input p-0.5 text-xs">
+          <button type="button" @click="setGpuMode('auto')"
+                  class="px-2.5 py-1 rounded transition-colors"
+                  :class="gpuMode==='auto' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'">指定数量</button>
+          <button type="button" @click="setGpuMode('manual')"
+                  class="px-2.5 py-1 rounded transition-colors"
+                  :class="gpuMode==='manual' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'">指定卡号</button>
+        </div>
+
+        <div x-show="gpuMode==='auto'" class="mt-2 flex items-center gap-2 text-sm">
           <input type="number" min="0" x-model="f.gpu"
-                 class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
-        {% endcall %}
+                 class="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+          <span class="text-xs text-muted-foreground">卡 · 默认由 Kubernetes 分配</span>
+        </div>
+
+        <div x-show="gpuMode==='manual'" x-cloak class="mt-2 space-y-2">
+          <div class="flex items-center gap-2">
+            <button type="button" class="btn btn-outline h-8 px-3 text-xs"
+                    @click="loadFreeCards()" :disabled="loadingCards">
+              {{ icon("refresh-cw", class="h-3.5 w-3.5") }}
+              <span x-text="loadingCards ? '读取中' : '读取空闲卡'"></span>
+            </button>
+            <span class="text-xs text-muted-foreground">来自 GPU 大盘；未知状态不会当作空闲。</span>
+          </div>
+          <template x-if="freeCardsLoaded && freeCards.length === 0">
+            <div class="rounded border border-border bg-muted/40 p-2 text-xs text-muted-foreground">当前没有可确认的空闲卡。</div>
+          </template>
+          <div class="grid grid-cols-4 sm:grid-cols-8 gap-1.5" x-show="freeCards.length">
+            <template x-for="c in freeCards" :key="c.uuid">
+              <button type="button" @click="togglePin(c)"
+                      class="rounded border p-1.5 text-center transition-colors"
+                      :class="pinned.includes(c.uuid) ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'border-border hover:border-primary/40'">
+                <div class="text-xs font-semibold" x-text="'卡' + c.index"></div>
+                <div class="text-[9px] text-emerald-600 dark:text-emerald-400">空闲</div>
+              </button>
+            </template>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <input type="text" x-model="manualGpuIds" @input="syncManualGpuIds()"
+                   placeholder="GPU UUID, 逗号分隔"
+                   class="h-8 rounded-md border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+            <input type="text" x-model="pinNode" @input="regenIfClean()"
+                   placeholder="节点名，可选"
+                   class="h-8 rounded-md border border-input bg-background px-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
+          </div>
+          <p class="text-[11px] text-muted-foreground">指定卡号会生成 gpuIds/node；只在你明确确认卡号时使用。</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
         {% call fieldrow("CPU") %}
           <input type="number" min="1" x-model="f.cpu"
                  class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
@@ -74,6 +122,21 @@
         <input type="text" x-model="f.image"
                class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50" />
       {% endcall %}
+
+      {% if tpl.kind == 'training' %}
+      <div class="flex items-start justify-between gap-4 rounded-lg border border-border p-3">
+        <div>
+          <div class="text-sm font-medium">提交为排队任务</div>
+          <div class="text-xs text-muted-foreground">创建 suspend Job 并进入队列页；v1 不自动调度，确认 GPU 后手动放行。</div>
+        </div>
+        <button type="button" @click="queue=!queue; regenIfClean()"
+                class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors"
+                :class="queue ? 'bg-primary' : 'bg-muted'">
+          <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+                :class="queue ? 'translate-x-6' : 'translate-x-1'"></span>
+        </button>
+      </div>
+      {% endif %}
 
       <div class="pt-2 flex items-center gap-2">
         <button type="button" class="btn btn-outline h-9 px-4" @click="validateYaml()" :disabled="busy">
@@ -122,6 +185,8 @@
   window.qsLaunch = function (tplYaml, defaults, kind) {
     return {
       f: { ...defaults }, yamlText: '', manual: false, busy: false, result: null,
+      gpuMode: 'auto', pinned: [], manualGpuIds: '', pinNode: '',
+      freeCards: [], freeCardsLoaded: false, loadingCards: false, queue: false,
       init() {
         this.regen();
         for (const k of ['name', 'namespace', 'pool', 'gpu', 'cpu', 'memory', 'image']) {
@@ -129,6 +194,45 @@
         }
       },
       get nameOk() { return /^[a-z]([a-z0-9-]{0,38}[a-z0-9])?$/.test(this.f.name || ''); },
+      regenIfClean() { if (!this.manual) this.regen(); },
+      setGpuMode(mode) {
+        this.gpuMode = mode;
+        if (mode === 'auto') {
+          this.pinned = [];
+          this.manualGpuIds = '';
+          this.pinNode = '';
+        } else if (!this.freeCardsLoaded) {
+          this.loadFreeCards();
+        }
+        this.regenIfClean();
+      },
+      async loadFreeCards() {
+        this.loadingCards = true;
+        try {
+          const r = await fetch('/api/gpu/free-cards');
+          const d = await r.json();
+          this.freeCards = d.cards || [];
+          this.freeCardsLoaded = true;
+        } catch (e) {
+          this.freeCards = [];
+          this.freeCardsLoaded = true;
+        } finally {
+          this.loadingCards = false;
+        }
+      },
+      togglePin(c) {
+        const k = this.pinned.indexOf(c.uuid);
+        k >= 0 ? this.pinned.splice(k, 1) : this.pinned.push(c.uuid);
+        this.manualGpuIds = this.pinned.join(', ');
+        this.pinNode = c.node;
+        this.f.gpu = this.pinned.length;
+        this.regenIfClean();
+      },
+      syncManualGpuIds() {
+        this.pinned = this.manualGpuIds.split(',').map(s => s.trim()).filter(Boolean);
+        this.f.gpu = this.pinned.length || this.f.gpu;
+        this.regenIfClean();
+      },
       regen() {
         this.yamlText = tplYaml
           .replaceAll('__NAME__', this.f.name)
@@ -138,6 +242,16 @@
           .replaceAll('__CPU__', String(this.f.cpu))
           .replaceAll('__MEMORY__', this.f.memory)
           .replaceAll('__IMAGE__', this.f.image);
+        if (this.gpuMode === 'manual' && this.manualGpuIds.trim()) {
+          const ids = this.manualGpuIds.split(',').map(s => s.trim()).filter(Boolean)
+            .map(u => `"${u}"`).join(', ');
+          let inject = `  gpuIds: [${ids}]`;
+          if (this.pinNode.trim()) inject += `\n  node: ${this.pinNode.trim()}`;
+          this.yamlText = this.yamlText.replace(/^(resources:[ \t]*)$/m, `$1\n${inject}`);
+        }
+        if (this.queue) {
+          this.yamlText = this.yamlText.replace(/^job:[ \t]*$/m, 'job:\n  queue: true');
+        }
       },
       async validateYaml() {
         this.busy = true; this.result = null;

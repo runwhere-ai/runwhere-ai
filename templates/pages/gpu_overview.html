@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}GPU 大盘 · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">GPU 大盘</span>{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-7xl space-y-6">
+
+  {# ── Header ─────────────────────────────────────────────────────────── #}
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="text-2xl font-semibold tracking-tight">GPU 大盘</h1>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+        <span class="conn-dot {% if has_gpu_data %}conn-online{% else %}conn-offline{% endif %}"></span>
+        {% if has_gpu_data %}实时{% else %}未核实{% endif %}
+      </span>
+      <button class="btn btn-outline" onclick="location.reload()">
+        {{ icon("refresh-cw", class="h-4 w-4") }} 刷新
+      </button>
+    </div>
+  </div>
+
+  {# ── Legend ─────────────────────────────────────────────────────────── #}
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-muted-foreground/30"></span>空闲</span>
+    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-emerald-500"></span>K8s</span>
+    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-sm bg-amber-500"></span>外部进程</span>
+  </div>
+
+  {% if not has_gpu_data %}
+      <div class="card border-amber-300/60 bg-amber-50/60 dark:bg-amber-900/10 p-5 flex items-start gap-3">
+        <span class="text-amber-600 dark:text-amber-400 mt-0.5">{{ icon("alert-triangle", class="h-4 w-4") }}</span>
+        <div class="text-sm">
+          <div class="font-medium text-amber-800 dark:text-amber-300">GPU 真实占用未知</div>
+          <div class="text-muted-foreground mt-1">当前没有 prober 上报；不会把未知卡显示为空闲。</div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# ── Per-node sections ──────────────────────────────────────────────── #}
+  {% for node in nodes %}
+  <section class="space-y-3">
+
+    {# Node header #}
+    <div class="flex items-center gap-3">
+      <span class="flex h-8 w-8 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        {{ icon("server", class="h-4 w-4") }}
+      </span>
+      <div class="flex-1">
+        <div class="text-sm font-semibold">{{ node.name }}</div>
+        <div class="text-xs text-muted-foreground">{{ node.gpu_model }} · {{ node.gpu_total }} 卡</div>
+      </div>
+      {% if node.reachable %}
+        <span class="text-xs text-muted-foreground">
+          占用 <span class="font-semibold text-foreground">{{ node.gpu_busy }}</span> / {{ node.gpu_total }}
+          {% if node.gpu_unmanaged %}
+            · <span class="text-amber-600 dark:text-amber-400">{{ node.gpu_unmanaged }} 张未纳管</span>
+          {% endif %}
+        </span>
+      {% endif %}
+    </div>
+
+    {% if not node.reachable %}
+      {# §4 多节点边界：prober 未覆盖 → 诚实标注未核实，不假装空闲 #}
+      <div class="card border-amber-300/60 bg-amber-50/60 dark:bg-amber-900/10 p-4 flex items-start gap-3">
+        <span class="text-amber-600 dark:text-amber-400 mt-0.5">{{ icon("alert-triangle", class="h-4 w-4") }}</span>
+        <div class="text-sm">
+          <div class="font-medium text-amber-800 dark:text-amber-300">真实占用未核实</div>
+          <div class="text-muted-foreground mt-0.5">
+            此节点 prober 未覆盖（console 够不到）。仅从 k8s API 知道它有 {{ node.gpu_total }} 张卡，
+            但卡上跑着什么、是否被未纳管进程占用——看不到。开启该节点的 prober 后即可显示。
+          </div>
+        </div>
+      </div>
+    {% else %}
+      {# Card tiles grid #}
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {% for c in node.cards %}
+        {% set pct = c.util %}
+        {% set is_free = c.state == "free" %}
+        {% set is_unmanaged = c.state == "unmanaged" %}
+        <div x-data="{open:false}"
+             class="card p-4 flex flex-col gap-3 transition-colors
+                    {% if is_unmanaged %}border-amber-300/70 bg-amber-50/40 dark:bg-amber-900/10{% endif %}">
+
+          {# Tile header — clickable to expand #}
+          <button type="button" class="flex items-center justify-between gap-2 text-left"
+                  @click="open = !open" {% if is_free %}disabled{% endif %}>
+            <div class="min-w-0">
+              <div class="text-sm font-semibold">卡 {{ c.index }}</div>
+              <div class="font-mono text-[10px] text-muted-foreground truncate">{{ c.uuid }}</div>
+            </div>
+            {% if is_free %}
+              <span class="inline-flex items-center whitespace-nowrap shrink-0 rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">空闲</span>
+            {% elif is_unmanaged %}
+              <span class="inline-flex items-center gap-1 whitespace-nowrap shrink-0 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-xs font-medium">
+                {{ icon("alert-triangle", class="h-3 w-3") }} 未纳管
+              </span>
+            {% else %}
+              <span class="inline-flex items-center whitespace-nowrap shrink-0 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 px-2 py-0.5 text-xs font-medium">运行中</span>
+            {% endif %}
+          </button>
+
+          {# GPU utilization + memory occupancy #}
+          <div>
+            <div class="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>GPU 利用率 {{ c.util }}%</span>
+              <span class="font-mono">显存占用 {{ c.mem_used|round(1) }} / {{ c.mem_total|round(1) }} GB</span>
+            </div>
+            <div class="h-2 w-full rounded-full bg-muted overflow-hidden">
+              <div class="h-full rounded-full {% if is_unmanaged %}bg-amber-500{% elif is_free %}bg-transparent{% else %}bg-emerald-500{% endif %}"
+                   style="width: {{ pct }}%"></div>
+            </div>
+          </div>
+
+          {# Occupant summary + chevron #}
+          {% if is_free %}
+            <div class="text-xs text-muted-foreground">无进程</div>
+          {% else %}
+            <button type="button" class="flex items-center justify-between gap-2 text-left text-xs" @click="open = !open">
+              <span class="truncate {% if is_unmanaged %}text-amber-700 dark:text-amber-400{% else %}text-foreground{% endif %}">
+                {{ c.occupant }}
+                <span class="text-muted-foreground">· {{ c.procs|length }} 进程</span>
+              </span>
+              <span class="shrink-0 text-muted-foreground transition-transform" :class="open && 'rotate-90'">
+                {{ icon("chevron-right", class="h-3.5 w-3.5") }}
+              </span>
+            </button>
+
+            {# Expanded process detail — nvidia-smi style process table #}
+            <div x-show="open" x-cloak class="space-y-2 border-t border-border pt-2">
+              <div class="grid grid-cols-[4.5rem_1fr_4.25rem] gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+                <span>PID</span>
+                <span>Process</span>
+                <span class="text-right">Memory</span>
+              </div>
+              {% for p in c.procs %}
+              <div class="grid grid-cols-[4.5rem_1fr_4.25rem] gap-2 text-xs items-start">
+                <span class="font-mono text-muted-foreground">{{ p.pid }}</span>
+                <div class="min-w-0">
+                  <div class="truncate font-medium" title="{{ p.command }}">{{ p.command }}</div>
+                  {% if p.command != p.name %}
+                    <div class="truncate text-[11px] text-muted-foreground">{{ p.name }}</div>
+                  {% endif %}
+                  {% if p.kind == "managed" %}
+                    <div class="truncate text-[11px] text-emerald-700 dark:text-emerald-400">
+                      {{ p.attrib }}{% if p.ns %} · {{ p.ns }}{% endif %}
+                    </div>
+                  {% elif p.kind == "docker" %}
+                    <div class="truncate text-[11px] text-amber-700 dark:text-amber-400">docker {{ p.attrib }}</div>
+                  {% else %}
+                    <div class="truncate text-[11px] text-amber-700 dark:text-amber-400">{{ p.attrib }}</div>
+                  {% endif %}
+                </div>
+                <span class="font-mono text-right">{{ p.mem_mb }} MiB</span>
+              </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+  {% endfor %}
+
+</div>
+{% endblock %}

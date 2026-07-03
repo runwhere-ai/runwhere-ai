@@ -3,6 +3,12 @@
 > 状态:**评审稿**(尚未实现;待评审通过后再拉分支动手)
 > 缘起:从"无 DCGM 下如何统计每个任务的 GPU 利用率"这个问题延展而来
 > 关联:[templates-design.md](templates-design.md)、`docs/BORROW-skypilot.md`(SkyPilot 借鉴,spot 恢复部分)
+>
+> ⚠️ **2026-06-28 更正**:本文 §3 / §11.6 的"per-process 归因 N/A"是 **WSL2 GPU-PV 天花板**,
+> runw 已重装为**原生 Ubuntu**后实测**已推翻**——容器内能读自有进程显存、hostPID 容器能读整机所有 GPU 进程
+> (含非 k8s 的 docker 容器),env 能按 UUID/索引精确钉卡。GPU 占用/进程归因/指定卡号的最终方案见
+> [docs/design/job-queue-design.md（GPU 控制面设计）](../../docs/design/job-queue-design.md) §3.3 + 附录 A。
+> "DaemonSet 管卡/Sidecar 管任务内部"的分工结论仍成立,但 DaemonSet 改为 **console 自管的 prober 特性**(非手动部署)。
 
 ---
 
