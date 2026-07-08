@@ -77,6 +77,26 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         logger.warning("informers not started; realtime status disabled: %s", exc)
 
+    # GPU prober（form A：进程内，hostPID）—— 采集本节点整卡占用 → RealityStore → GPU 大盘。
+    # 需容器具备 hostPID + nvidia runtime；无 GPU（本地/无卡）则 start() 自动空转，不影响启动。
+    app.state.gpu_prober = None
+    try:
+        import os
+        import socket
+
+        from src.console.gpu_prober import GpuProber, make_k8s_pod_resolver
+
+        node = os.getenv("NODE_NAME") or socket.gethostname()
+        prober = GpuProber(node=node, resolver=make_k8s_pod_resolver())
+        await asyncio.get_running_loop().run_in_executor(None, prober.start)
+        app.state.gpu_prober = prober
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("GpuProber 未启动: %s", exc)
+
+    # 轻量 v1 不启动自动 admission loop。
+    # 队列只是 K8s Job(suspend=true) 的只读/手动放行视图；自动选卡和自动放行后置。
+    app.state.job_queue = None
+
     yield
 
     for inf in informers:
@@ -84,19 +104,16 @@ async def lifespan(app: FastAPI):
             await inf.stop()
         except Exception:  # noqa: BLE001
             pass
+    if getattr(app.state, "gpu_prober", None):
+        try:
+            app.state.gpu_prober.stop()
+        except Exception:  # noqa: BLE001
+            pass
     logger.info("runwhere-ai shutting down…")
 
 
 def create_app() -> FastAPI:
     """Application factory — used both by uvicorn and by tests."""
-    # GPU 指标采集默认开启:自动推导 sidecar 上报端点(集群内→Service / docker→本机节点 IP),
-    # 无需任何手动 env。必须在任何任务创建前设好 os.environ,供 gpuctl 注入 sidecar。
-    try:
-        from src.console.telemetry_autoconfig import configure_telemetry
-        configure_telemetry(CONFIG.port)
-    except Exception as exc:  # noqa: BLE001 — 采集是增强项,失败不应挡住启动
-        logger.warning("telemetry 自动配置失败(GPU 指标可能不显示): %s", exc)
-
     app = FastAPI(
         title="runwhere-ai",
         description="一体化 Web 控制台：Notebook · Training · Inference · Compute",

@@ -27,6 +27,8 @@ def register_routes(app: FastAPI) -> None:
     from src.webui.auth import router as auth_router
     from src.webui.ws_events import router as ws_events_router
     from src.webui.pages.dashboard import router as dashboard_router
+    from src.webui.pages.gpu_overview import router as gpu_overview_router
+    from src.webui.pages.gpu_queue import router as gpu_queue_router
     from src.webui.pages.cluster_config import router as cluster_config_router
     from src.webui.pages.quickstart import router as quickstart_router
     from src.webui.api_templates import router as api_templates_router
@@ -41,6 +43,8 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(auth_router)
     app.include_router(ws_events_router)
     app.include_router(dashboard_router)
+    app.include_router(gpu_overview_router)
+    app.include_router(gpu_queue_router)
     app.include_router(cluster_config_router)
     app.include_router(quickstart_router)
     app.include_router(stubs_router)

@@ -42,8 +42,7 @@ async def _dashboard_stats(namespace: str | None = None) -> dict:
         gpu_used = sum(p.get("gpu_used", 0) for p in pools)
         util = round(100 * gpu_used / gpu_total) if gpu_total else 0
 
-        # 真实 GPU 利用率 / 显存占用率:聚合任务 sidecar 上报的【设备级】遥测
-        # (见 src/console/telemetry_store.py)。仅计 fresh 上报;无上报则 None → 前端显 —。
+        # 任务级遥测是可选增强:只有显式启用 sidecar 时才会有数据。
         from src.console.telemetry_store import STORE
         tele = STORE.get_all()
         if namespace:
@@ -86,6 +85,10 @@ async def dashboard(
     from src.webui.pages.stubs import selected_namespace
     ns = selected_namespace(request)
     stats = await _dashboard_stats(ns)
+    from src.webui.pages.gpu_queue import queued_counts
+    queued_n, unsched_n, queue_available = queued_counts()
+    stats["queued_n"], stats["unsched_n"] = queued_n, unsched_n
+    stats["queue_available"] = queue_available
     return templates.TemplateResponse(
         request,
         "pages/dashboard.html",

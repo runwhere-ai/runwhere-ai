@@ -44,6 +44,10 @@ spec:
         app: runwhere-ai
     spec:
       serviceAccountName: runwhere-ai
+      # GPU prober（form A，job-queue-design.md §3.3/§4）：hostPID 看整机 GPU 进程 +
+      # nvidia runtime 注入 nvidia-smi（env 路径，不申请 nvidia.com/gpu）。单节点即完整。
+      hostPID: true
+      runtimeClassName: nvidia
       containers:
         - name: runwhere-ai
           image: runwhere/ai:dev
@@ -69,6 +73,15 @@ spec:
             # 路由前缀一致。不设(默认)则 gpuctl 不改 notebook,走直连 NodePort。
             - name: GPUCTL_NOTEBOOK_BASE_URL_PREFIX
               value: /nb
+            # ── GPU prober：看见整机 GPU 占用（nvidia runtime 注入 nvidia-smi）──────
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: all
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: utility
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
           readinessProbe:
             httpGet:
               path: /health

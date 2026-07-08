@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}任务队列 · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">任务队列</span>{% endblock %}
+
+{% macro prio_badge(p) %}
+  {% if p == "high" %}
+    <span class="inline-flex items-center rounded-full bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 px-2 py-0.5 text-xs font-medium">高</span>
+  {% elif p == "medium" %}
+    <span class="inline-flex items-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-2 py-0.5 text-xs font-medium">中</span>
+  {% else %}
+    <span class="inline-flex items-center rounded-full bg-muted text-muted-foreground px-2 py-0.5 text-xs font-medium">低</span>
+  {% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="mx-auto max-w-6xl space-y-6">
+
+  {# Header #}
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <div class="flex items-center gap-2">
+        <h1 class="text-2xl font-semibold tracking-tight">任务队列</h1>
+      </div>
+    </div>
+    <a href="/submit-preview" class="btn btn-primary">{{ icon("plus", class="h-4 w-4") }} 新建任务</a>
+  </div>
+
+  {# Summary strip #}
+  <div class="flex items-center gap-4 text-sm">
+    <span class="inline-flex items-center gap-1.5 text-muted-foreground">
+      <span class="conn-dot {% if queue_available %}conn-online{% else %}conn-offline{% endif %}"></span>
+      {% if queue_available %}已读取{% else %}未知{% endif %}
+    </span>
+    <span class="text-muted-foreground">排队中 <span class="font-semibold text-foreground">{{ pending_n }}</span></span>
+    <span class="text-muted-foreground">运行中 <span class="font-semibold text-foreground">{{ running_n }}</span></span>
+  </div>
+
+  {% if not queue_available %}
+    <div class="card border-amber-300/60 bg-amber-50/60 dark:bg-amber-900/10 p-4 flex items-start gap-3">
+      <span class="text-amber-600 dark:text-amber-400 mt-0.5">{{ icon("alert-triangle", class="h-4 w-4") }}</span>
+      <div class="text-sm">
+        <div class="font-medium text-amber-800 dark:text-amber-300">队列状态未知</div>
+        <div class="text-muted-foreground mt-0.5">无法读取 K8s queued Job。</div>
+      </div>
+    </div>
+  {% endif %}
+
+  {# Queue table #}
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-border text-left text-xs text-muted-foreground">
+          <th class="px-4 py-3 font-medium w-16">位置</th>
+          <th class="px-4 py-3 font-medium">任务</th>
+          <th class="px-4 py-3 font-medium">优先级</th>
+          <th class="px-4 py-3 font-medium">卡数</th>
+          <th class="px-4 py-3 font-medium">资源池</th>
+          <th class="px-4 py-3 font-medium">已等 / 状态</th>
+          <th class="px-4 py-3 font-medium text-right">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if not rows %}
+        <tr>
+          <td colspan="7" class="px-4 py-12 text-center text-sm text-muted-foreground">
+            {% if queue_available %}暂无排队任务{% else %}队列不可用{% endif %}
+          </td>
+        </tr>
+        {% endif %}
+        {% for r in rows %}
+        <tr class="border-b border-border/60 last:border-0 hover:bg-muted/30
+                   {% if r.state == 'unschedulable' %}bg-amber-50/40 dark:bg-amber-900/10{% endif %}">
+
+          {# 位置 #}
+          <td class="px-4 py-3">
+            {% if r.pos %}
+              <span class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-semibold">{{ r.pos }}</span>
+            {% else %}
+              <span class="text-muted-foreground">—</span>
+            {% endif %}
+          </td>
+
+          {# 任务 + owner + 原因/卡 #}
+          <td class="px-4 py-3">
+            <div class="font-medium">{{ r.name }}</div>
+            <div class="text-xs text-muted-foreground">
+              {{ r.owner }}
+              {% if r.cards %} · <span class="text-emerald-600 dark:text-emerald-400">{{ r.cards }}</span>{% endif %}
+              {% if r.reason and r.state != 'unschedulable' %} · {{ r.reason }}{% endif %}
+            </div>
+            {% if r.state == 'unschedulable' %}
+              <div class="mt-1 inline-flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+                {{ icon("alert-triangle", class="h-3 w-3 mt-0.5 shrink-0") }}<span>{{ r.reason }}</span>
+              </div>
+            {% endif %}
+          </td>
+
+          {# 优先级 #}
+          <td class="px-4 py-3">{{ prio_badge(r.priority) }}</td>
+
+          {# 卡数 #}
+          <td class="px-4 py-3"><span class="font-mono">{{ r.gpus }}</span> 卡</td>
+
+          {# 资源池 #}
+          <td class="px-4 py-3"><span class="badge badge-neutral">{{ r.pool }}</span></td>
+
+          {# 已等 / 状态 #}
+          <td class="px-4 py-3">
+            {% if r.state == 'pending' %}
+              <span class="inline-flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full bg-blue-500"></span>
+                <span>排队中 · {{ r.waited }}</span>
+              </span>
+            {% elif r.state == 'running' %}
+              <span class="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400">
+                <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                <span>运行中 · {{ r.waited }}</span>
+              </span>
+            {% else %}
+              <span class="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                {{ icon("alert-triangle", class="h-3.5 w-3.5") }}<span>排不上</span>
+              </span>
+            {% endif %}
+          </td>
+
+          {# 操作 #}
+          <td class="px-4 py-3 text-right">
+            {% if r.state == 'pending' %}
+              <div class="inline-flex items-center gap-1">
+                <button class="btn btn-outline h-7 px-2 text-xs"
+                        onclick="releaseQueuedJob('{{ r.namespace }}', '{{ r.name }}')">
+                  {{ icon("play", class="h-3.5 w-3.5") }} 手动放行
+                </button>
+              </div>
+            {% elif r.state == 'running' %}
+              <a href="#" class="text-xs text-muted-foreground hover:text-foreground">详情 {{ icon("arrow-right", class="inline h-3 w-3") }}</a>
+            {% else %}
+              <button class="btn-ghost btn h-7 px-2 text-xs">改请求</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+</div>
+<script>
+  async function releaseQueuedJob(namespace, name) {
+    if (!confirm('确认手动放行 ' + namespace + '/' + name + ' ?')) return;
+    const r = await fetch('/queue/' + encodeURIComponent(namespace) + '/' + encodeURIComponent(name) + '/release', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': window.rwCsrf ? window.rwCsrf() : '' },
+    });
+    if (r.ok) location.reload();
+    else alert('放行失败');
+  }
+</script>
+{% endblock %}

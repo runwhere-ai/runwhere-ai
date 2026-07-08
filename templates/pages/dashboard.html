@@ -33,10 +33,50 @@
   </div>
 
   {# KPI tiles #}
-  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
     {{ metric("运行中任务", running_jobs, hint="共 " ~ total_jobs ~ " 个任务（含全部状态）") }}
-    {{ metric("GPU 利用率", (gpu_util_pct ~ "%") if tele_n else "—", hint=("设备级 · 采样 " ~ tele_n ~ " 个运行任务") if tele_n else "暂无运行任务上报") }}
-    {{ metric("GPU 占用率", (gpu_mem_pct ~ "%") if (tele_n and gpu_mem_pct is not none) else "—", hint=("显存 · 采样 " ~ tele_n ~ " 个运行任务") if tele_n else "暂无运行任务上报") }}
+
+    {# 排队摘要卡 —— 轻量读取 queued Job 摘要,不做自动放行。 #}
+    <a href="/queue" class="card p-5 group block hover:border-primary/40 hover:bg-muted/30 transition-colors">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-muted-foreground">任务队列</div>
+        <span class="text-xs text-muted-foreground group-hover:text-foreground">{{ icon("arrow-right", class="h-3 w-3") }}</span>
+      </div>
+      <div class="mt-2 flex items-end gap-6">
+        <div>
+          <div class="text-3xl font-semibold tracking-tight">{{ queued_n if queue_available else "—" }}</div>
+          <div class="mt-0.5 text-xs text-muted-foreground">排队中</div>
+        </div>
+        <div class="h-10 w-px bg-border"></div>
+        <div>
+          <div class="text-3xl font-semibold tracking-tight {% if queue_available and unsched_n %}text-amber-600 dark:text-amber-400{% endif %}">
+            {{ unsched_n if queue_available else "—" }}
+          </div>
+          <div class="mt-0.5 text-xs text-muted-foreground">排不上</div>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-muted-foreground">{% if queue_available %}Queued Jobs{% else %}Unavailable{% endif %}</div>
+    </a>
+
+    <a href="/gpu" class="card p-5 md:col-span-2 group block hover:border-primary/40 hover:bg-muted/30 transition-colors">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-muted-foreground">GPU 概览</div>
+        <span class="text-xs text-muted-foreground group-hover:text-foreground">{{ icon("arrow-right", class="h-3 w-3") }}</span>
+      </div>
+      <div class="mt-2 flex items-end gap-8">
+        <div>
+          <div class="text-3xl font-semibold tracking-tight">{{ (gpu_util_pct ~ "%") if tele_n else "—" }}</div>
+          <div class="mt-0.5 text-xs text-muted-foreground">利用率</div>
+        </div>
+        <div class="h-10 w-px bg-border"></div>
+        <div>
+          <div class="text-3xl font-semibold tracking-tight">{{ (gpu_mem_pct ~ "%") if (tele_n and gpu_mem_pct is not none) else "—" }}</div>
+          <div class="mt-0.5 text-xs text-muted-foreground">显存占用</div>
+        </div>
+      </div>
+      <div class="mt-2 text-xs text-muted-foreground">{{ ("GPU Telemetry · " ~ tele_n ~ " Pods") if tele_n else "No telemetry" }}</div>
+    </a>
+
     {{ metric("节点数", node_count, hint="集群物理节点") }}
   </div>
 
