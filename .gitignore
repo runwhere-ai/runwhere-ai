@@ -49,3 +49,7 @@ scripts/run-local.ps1
 
 # 平台运行期数据（自定义模板等；docker 挂 -v ./data:/app/data 持久化）
 data/
+
+# Local verification scripts (ad-hoc, not platform code)
+scripts/verify_*.py
+scripts/verify_report.json
