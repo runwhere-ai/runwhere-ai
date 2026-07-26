@@ -139,6 +139,7 @@ def create_app() -> FastAPI:
             global_labels_router,
             quotas_router,
             namespaces_router,
+            inferences_router,
         )
 
         app.include_router(jobs_router)
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
         app.include_router(quotas_router)
         app.include_router(namespaces_router)
         app.include_router(global_labels_router)
+        app.include_router(inferences_router)
         logger.info("gpuctl /api/v1/* routers mounted")
     except Exception as exc:  # pragma: no cover - boot-time wiring
         logger.warning("gpuctl routers not mounted (%s); /api/v1/* will be absent.", exc)
