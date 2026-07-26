@@ -22,8 +22,22 @@ from src.console.models import (
 )
 from src.webui.templating import templates
 
+try:
+    from server.errors import error_body
+except ImportError:  # pragma: no cover - gpuctl always available in practice
+    def error_body(status_code: int, detail):  # type: ignore[misc]
+        return {"error": {"code": "ERROR", "message": str(detail), "action": "retry"}}
+
 
 logger = logging.getLogger(__name__)
+
+
+def _json_error(status_code: int, detail) -> dict:
+    """JSON 错误 body：**新增** `error.{code,message,action}`(Agent-First PRD §4.8)，
+    同时保留 `detail`(现有前端多处页面的 JS 靠 `d.detail` 取错误信息展示给用户——
+    namespace_new.html / pool_new.html / quota_edit.html 等，这里不能删，只能加)。
+    """
+    return {"detail": detail, **error_body(status_code, detail)}
 
 
 def _is_htmx(request: Request) -> bool:
@@ -70,14 +84,14 @@ def register_handlers(app: FastAPI) -> None:
                 return resp
             if _is_html(request):
                 return RedirectResponse(f"/login?next={request.url.path}", status_code=302)
-            return JSONResponse({"detail": "not_authenticated"}, status_code=401,
+            return JSONResponse(_json_error(401, "not_authenticated"), status_code=401,
                                 headers={"X-Request-Id": rid})
 
         # All other HTML clients get a rendered page.
         if _is_html(request) and not _is_htmx(request):
             return _render_error(request, exc.status_code, _title_for(exc.status_code),
                                  str(exc.detail) if exc.detail else "")
-        return JSONResponse({"detail": exc.detail}, status_code=exc.status_code,
+        return JSONResponse(_json_error(exc.status_code, exc.detail), status_code=exc.status_code,
                             headers={"X-Request-Id": rid})
 
     @app.exception_handler(AuthError)
@@ -108,7 +122,7 @@ def register_handlers(app: FastAPI) -> None:
         if _is_html(request):
             return _render_error(request, 500, _title_for(500),
                                  "An unexpected error occurred. Please retry.")
-        return JSONResponse({"detail": "internal_error"}, status_code=500,
+        return JSONResponse(_json_error(500, "internal_error"), status_code=500,
                             headers={"X-Request-Id": rid})
 
 
