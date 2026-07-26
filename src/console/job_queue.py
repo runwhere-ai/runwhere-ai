@@ -6,8 +6,11 @@ v1 不做自动准入、不维护内存账本、不替 K8s/device-plugin 选卡;
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # 队列标签(寄存在 Job 上,重启 list 一遍即重建队列)
 LBL_QUEUED = "runwhere.ai/queued"          # "true"
@@ -82,3 +85,56 @@ def _ensure_k8s_config(state: dict) -> None:
         except Exception:  # noqa: BLE001
             pass
     state["cfg"] = True
+
+
+# ── K8s I/O(供 webui 路由与自动准入循环共用)───────────────────────────────────
+def list_queued_jobs() -> tuple[list[QueuedJob], Optional[str]]:
+    """Read queued Jobs directly from Kubernetes.
+
+    Returns (jobs, error). Must not block product use if the cluster is absent in
+    local dev; unknown is better than fake queue data.
+    """
+    try:
+        from kubernetes import client
+
+        state: dict = {"cfg": False}
+        _ensure_k8s_config(state)
+        batch = client.BatchV1Api()
+        resp = batch.list_job_for_all_namespaces(
+            label_selector=f"{LBL_QUEUED}=true",
+            _request_timeout=(1, 2),
+        )
+        jobs: list[QueuedJob] = []
+        for j in resp.items:
+            qj = queued_job_from_labels(
+                j.metadata.namespace,
+                j.metadata.name,
+                j.metadata.labels or {},
+                bool(getattr(j.spec, "suspend", False)),
+                j.metadata.annotations or {},
+            )
+            if qj:
+                jobs.append(qj)
+        return jobs, None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("queued job list unavailable: %s", exc)
+        return [], str(exc)
+
+
+def release_queued_job(namespace: str, name: str) -> None:
+    """Manual v1 release (and the target of the auto-admission loop): flip
+    suspend=false and mark admitted."""
+    from kubernetes import client
+
+    state: dict = {"cfg": False}
+    _ensure_k8s_config(state)
+    body = {
+        "metadata": {"labels": {LBL_STATE: "admitted"}},
+        "spec": {"suspend": False},
+    }
+    client.BatchV1Api().patch_namespaced_job(
+        name=name,
+        namespace=namespace,
+        body=body,
+        _request_timeout=(1, 2),
+    )

@@ -93,12 +93,29 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         logger.warning("GpuProber 未启动: %s", exc)
 
-    # 轻量 v1 不启动自动 admission loop。
-    # 队列只是 K8s Job(suspend=true) 的只读/手动放行视图；自动选卡和自动放行后置。
-    app.state.job_queue = None
+    # 队列自动准入（停车场 -> 真队列）：定时检查 prober 真实空闲卡数，够就放行队首。
+    # 依赖上面的 gpu_prober（判定空闲的唯一数据源）；无 prober 数据时循环只是安全地什么都不做。
+    app.state.queue_admission = None
+    if CONFIG.queue_auto_admit:
+        try:
+            from src.console.queue_admission import AdmissionLoop
+
+            admission = AdmissionLoop(
+                interval=CONFIG.queue_admission_interval_seconds,
+                landed_timeout=CONFIG.queue_admission_landed_timeout_seconds,
+            )
+            admission.start()
+            app.state.queue_admission = admission
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("AdmissionLoop 未启动: %s", exc)
 
     yield
 
+    if getattr(app.state, "queue_admission", None):
+        try:
+            app.state.queue_admission.stop()
+        except Exception:  # noqa: BLE001
+            pass
     for inf in informers:
         try:
             await inf.stop()
