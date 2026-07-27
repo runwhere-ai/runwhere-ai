@@ -38,6 +38,10 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         # 遥测 ingest 由集群内 sidecar 调用(非浏览器、无会话密钥)→ 免 CSRF
         if path.startswith("/api/v1/telemetry"):
             return await call_next(request)
+        # Agent 用 API key(Authorization: Bearer rw_...)调用 —— 非浏览器 cookie 会话,
+        # 无 CSRF 攻击面(伪造请求方也拿不到 rw_ key);实际鉴权交给 ApiKeyAuthMiddleware。
+        if path.startswith("/api/v1/") and request.headers.get("Authorization", "").startswith("Bearer rw_"):
+            return await call_next(request)
         # notebook 反向代理:jupyter 自带 XSRF 防护,透传即可 → 免 console CSRF
         if path.startswith("/nb/"):
             return await call_next(request)
