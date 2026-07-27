@@ -67,6 +67,17 @@ class Config:
     idle_watcher_poll_seconds: int = field(default_factory=lambda: _env_int("RWAI_IDLE_POLL_S", 60))
     idle_warning_minutes: int = field(default_factory=lambda: _env_int("RWAI_IDLE_WARN_M", 10))
 
+    # ── Queue auto-admission (job-queue-design.md §5) ─────────────────────────
+    # 停车场 -> 真队列：定时检查 prober 真实空闲卡数，够就放行队首。默认开启；
+    # 出问题时可整体关回纯手动放行，不需要改代码。
+    queue_auto_admit: bool = field(default_factory=lambda: _env_bool("RWAI_QUEUE_AUTO_ADMIT", True))
+    queue_admission_interval_seconds: float = field(
+        default_factory=lambda: float(os.getenv("RWAI_QUEUE_ADMIT_INTERVAL_S", "5"))
+    )
+    queue_admission_landed_timeout_seconds: float = field(
+        default_factory=lambda: float(os.getenv("RWAI_QUEUE_ADMIT_LANDED_TIMEOUT_S", "180"))
+    )
+
     # ── Compute (FR-072) ──────────────────────────────────────────────────────
     compute_default_ttl_seconds: int = field(
         default_factory=lambda: _env_int("RWAI_COMPUTE_TTL_S", 2_592_000)  # 30 days

@@ -93,12 +93,29 @@ async def lifespan(app: FastAPI):
     except Exception as exc:  # noqa: BLE001
         logger.warning("GpuProber 未启动: %s", exc)
 
-    # 轻量 v1 不启动自动 admission loop。
-    # 队列只是 K8s Job(suspend=true) 的只读/手动放行视图；自动选卡和自动放行后置。
-    app.state.job_queue = None
+    # 队列自动准入（停车场 -> 真队列）：定时检查 prober 真实空闲卡数，够就放行队首。
+    # 依赖上面的 gpu_prober（判定空闲的唯一数据源）；无 prober 数据时循环只是安全地什么都不做。
+    app.state.queue_admission = None
+    if CONFIG.queue_auto_admit:
+        try:
+            from src.console.queue_admission import AdmissionLoop
+
+            admission = AdmissionLoop(
+                interval=CONFIG.queue_admission_interval_seconds,
+                landed_timeout=CONFIG.queue_admission_landed_timeout_seconds,
+            )
+            admission.start()
+            app.state.queue_admission = admission
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("AdmissionLoop 未启动: %s", exc)
 
     yield
 
+    if getattr(app.state, "queue_admission", None):
+        try:
+            app.state.queue_admission.stop()
+        except Exception:  # noqa: BLE001
+            pass
     for inf in informers:
         try:
             await inf.stop()
@@ -128,6 +145,33 @@ def create_app() -> FastAPI:
     else:
         logger.warning("static dir %s does not exist; /static will 404", static_dir)
 
+    # ── API Key auth for /api/v1/* (Agent-First PRD Phase 0) ────────────────
+    # session_fallback lets the browser's own console session keep working
+    # against the JSON API without an API key — API keys are the mechanism
+    # for *external* callers (Agents) with per-key scopes. GPUCTL_API_AUTH=off
+    # (default) leaves /api/v1/* exactly as before (no auth) for compat.
+    from server.auth import install_api_auth
+    from server.routes.apikeys import set_store
+
+    async def _console_session_fallback(request, scope: str):
+        from src.webui.deps import get_auth_provider
+        from src.console.models import AuthError, Role
+
+        auth = get_auth_provider()
+        try:
+            user = await auth.authenticate(request)
+        except AuthError:
+            return None
+        # admin scope (key 管理) 需要真的是 admin 会话，不能靠"已登录"就放行——
+        # 否则 bearer 模式下 namespace_user 能靠浏览器会话自己给自己发 admin key。
+        if scope == "admin" and Role.ADMIN not in user.roles:
+            return None
+        return user
+
+    _auth_store = install_api_auth(app, session_fallback=_console_session_fallback)
+    if _auth_store is not None:
+        set_store(_auth_store)
+
     # ── Mount gpuctl's existing /api/v1/* routers ───────────────────────────
     # These are reused verbatim (CLI ↔ UI single source of truth, spec FR-117).
     try:
@@ -140,6 +184,7 @@ def create_app() -> FastAPI:
             quotas_router,
             namespaces_router,
             inferences_router,
+            apikeys_router,
         )
 
         app.include_router(jobs_router)
@@ -150,6 +195,7 @@ def create_app() -> FastAPI:
         app.include_router(namespaces_router)
         app.include_router(global_labels_router)
         app.include_router(inferences_router)
+        app.include_router(apikeys_router)
         logger.info("gpuctl /api/v1/* routers mounted")
     except Exception as exc:  # pragma: no cover - boot-time wiring
         logger.warning("gpuctl routers not mounted (%s); /api/v1/* will be absent.", exc)

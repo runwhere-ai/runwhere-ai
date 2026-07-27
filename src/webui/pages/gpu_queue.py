@@ -1,7 +1,9 @@
 """任务队列(看自己排第几)—— 设计 #3「提交就睡」的队列视图。
 
-数据来源:K8s Job 对象上的 `runwhere.ai/queued=true` 标签。
-v1 只有队列视图和手动放行，不启动自动 admission loop。
+数据来源:K8s Job 对象上的 `runwhere.ai/queued=true` 标签。这里只是视图 + 手动放行
+入口;自动准入的判断逻辑在 `src.console.queue_admission.AdmissionLoop`(随 app
+lifespan 启停,见 `src/main.py`),复用的正是本模块下面 import 的
+list_queued_jobs / order_pending / release_queued_job。
 """
 from __future__ import annotations
 
@@ -12,12 +14,10 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from src.console.job_queue import (
-    LBL_QUEUED,
-    LBL_STATE,
     QueuedJob,
-    _ensure_k8s_config,
+    list_queued_jobs,
     order_pending,
-    queued_job_from_labels,
+    release_queued_job,
 )
 from src.console.models import User
 from src.webui.deps import get_current_user
@@ -69,39 +69,6 @@ def _queue_to_view(jobs: list[QueuedJob]) -> dict:
     return {"rows": rows, "pending_n": len(pending), "running_n": len(running)}
 
 
-def list_queued_jobs() -> tuple[list[QueuedJob], str | None]:
-    """Read queued Jobs directly from Kubernetes.
-
-    Returns (jobs, error). The page must not block product use if the cluster is
-    absent in local dev; unknown is better than fake queue data.
-    """
-    try:
-        from kubernetes import client
-
-        state = {"cfg": False}
-        _ensure_k8s_config(state)
-        batch = client.BatchV1Api()
-        resp = batch.list_job_for_all_namespaces(
-            label_selector=f"{LBL_QUEUED}=true",
-            _request_timeout=(1, 2),
-        )
-        jobs: list[QueuedJob] = []
-        for j in resp.items:
-            qj = queued_job_from_labels(
-                j.metadata.namespace,
-                j.metadata.name,
-                j.metadata.labels or {},
-                bool(getattr(j.spec, "suspend", False)),
-                j.metadata.annotations or {},
-            )
-            if qj:
-                jobs.append(qj)
-        return jobs, None
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("queued job list unavailable: %s", exc)
-        return [], str(exc)
-
-
 def queued_counts() -> tuple[int, int, bool]:
     """Return (pending, unschedulable, available) for dashboard summary."""
     jobs, err = list_queued_jobs()
@@ -110,24 +77,6 @@ def queued_counts() -> tuple[int, int, bool]:
     pending = sum(1 for j in jobs if j.state == "pending")
     unsched = sum(1 for j in jobs if j.state == "unschedulable")
     return pending, unsched, True
-
-
-def release_queued_job(namespace: str, name: str) -> None:
-    """Manual v1 release: flip suspend=false and mark admitted."""
-    from kubernetes import client
-
-    state = {"cfg": False}
-    _ensure_k8s_config(state)
-    body = {
-        "metadata": {"labels": {LBL_STATE: "admitted"}},
-        "spec": {"suspend": False},
-    }
-    client.BatchV1Api().patch_namespaced_job(
-        name=name,
-        namespace=namespace,
-        body=body,
-        _request_timeout=(1, 2),
-    )
 
 
 @router.get("/queue")
