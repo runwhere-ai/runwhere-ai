@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% from "components/icon.html" import icon %}
+
+{% block title %}{{ t("nav.api_keys") }} · {{ t("app.name") }}{% endblock %}
+{% block breadcrumb %}<span class="text-foreground font-medium">{{ t("nav.api_keys") }}</span>{% endblock %}
+
+{% block content %}
+<div class="mx-auto max-w-5xl space-y-6">
+
+  <div>
+    <h1 class="text-2xl font-semibold tracking-tight">API Keys</h1>
+    <p class="mt-1 text-sm text-muted-foreground">签发给 Agent（Claude Code / Codex 等）调用 <span class="font-mono">/api/v1</span> 的凭证，按 scope 限权、可随时吊销。</p>
+  </div>
+
+  {% if error %}
+    <div class="banner banner-error text-sm">{{ error }}</div>
+  {% endif %}
+
+  {% if created_key %}
+    <div class="card p-5 border-emerald-500/40">
+      <div class="flex items-center gap-2">
+        <span class="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+          {{ icon("check", class="h-4 w-4") }}
+        </span>
+        <div>
+          <h2 class="text-base font-medium">已创建「{{ created_name }}」</h2>
+          <p class="text-sm text-muted-foreground">明文只显示这一次，请立即复制保存。</p>
+        </div>
+      </div>
+      <div class="mt-4 flex items-center gap-2">
+        <code id="rw-new-key" class="flex-1 rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-sm break-all">{{ created_key }}</code>
+        <button type="button" class="btn btn-outline shrink-0" onclick="navigator.clipboard.writeText(document.getElementById('rw-new-key').textContent); window.rwToast && window.rwToast('已复制', 'ok');">
+          复制
+        </button>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="grid gap-4 lg:grid-cols-[1fr_22rem]">
+    <div class="card p-5">
+      <h2 class="text-base font-medium">已签发的 Key（{{ keys|length }}）</h2>
+      {% if keys %}
+      <div class="mt-4 rounded-md border border-border">
+        <div class="relative w-full overflow-x-auto">
+          <table class="w-full caption-bottom text-sm">
+            <thead class="[&_tr]:border-b">
+              <tr>
+                <th class="h-10 px-2 text-left align-middle font-medium whitespace-nowrap">名称</th>
+                <th class="h-10 px-2 text-left align-middle font-medium whitespace-nowrap">前缀</th>
+                <th class="h-10 px-2 text-left align-middle font-medium whitespace-nowrap">命名空间</th>
+                <th class="h-10 px-2 text-left align-middle font-medium whitespace-nowrap">scopes</th>
+                <th class="h-10 px-2 text-left align-middle font-medium whitespace-nowrap">创建时间</th>
+                <th class="h-10 px-2 text-left align-middle font-medium whitespace-nowrap">过期</th>
+                <th class="h-10 px-2 text-right align-middle font-medium whitespace-nowrap"></th>
+              </tr>
+            </thead>
+            <tbody class="[&_tr:last-child]:border-0">
+              {% for k in keys %}
+              <tr class="border-b transition-colors hover:bg-muted/50">
+                <td class="p-2 align-middle font-medium">{{ k.name }}</td>
+                <td class="p-2 align-middle font-mono text-xs text-muted-foreground">{{ k.hint }}</td>
+                <td class="p-2 align-middle font-mono text-xs">{{ k.namespace }}</td>
+                <td class="p-2 align-middle">
+                  {% for s in k.scopes %}<span class="badge badge-neutral mr-1">{{ s }}</span>{% endfor %}
+                </td>
+                <td class="p-2 align-middle text-xs text-muted-foreground">{{ k.created_at[:19] }}</td>
+                <td class="p-2 align-middle text-xs text-muted-foreground">{{ k.expires_at[:10] if k.expires_at else "永不" }}</td>
+                <td class="p-2 align-middle text-right">
+                  <form method="post" action="/api-keys/{{ k.key_id }}/revoke"
+                        onsubmit="return confirm('确定吊销「' + {{ k.name | tojson }} + '」？调用方将立即失效（最迟一个校验缓存周期内生效）。');">
+                    <button type="submit" class="btn btn-outline h-8 px-2 text-red-600 dark:text-red-400" title="吊销">
+                      {{ icon("trash", class="h-3.5 w-3.5") }}
+                    </button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% else %}
+      <p class="mt-4 text-sm text-muted-foreground">还没有创建任何 API Key。</p>
+      {% endif %}
+    </div>
+
+    <div class="card p-5 self-start">
+      <h2 class="text-base font-medium">签发新 Key</h2>
+      <form method="post" action="/api-keys" class="mt-4 space-y-4">
+        <div>
+          <label for="name" class="form-label">名称</label>
+          <input id="name" name="name" type="text" required
+                 placeholder="claude-code-leon"
+                 class="form-input font-mono text-sm" />
+        </div>
+        <div>
+          <label class="form-label">scopes</label>
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border border-border p-3 max-h-48 overflow-y-auto">
+            {% for s in preset_scopes %}
+            <label class="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" name="scopes" value="{{ s }}" class="rounded border-input" />
+              <span class="font-mono text-xs">{{ s }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <p class="mt-1 text-xs text-muted-foreground">或直接授予 <span class="font-mono">admin</span>（不限 scope，谨慎使用）：
+            <label class="ml-1 inline-flex items-center gap-1"><input type="checkbox" name="scopes" value="admin" class="rounded border-input" /> admin</label>
+          </p>
+        </div>
+        <div>
+          <label for="bind_namespace" class="form-label">绑定命名空间（仅记录，不强制）</label>
+          <input id="bind_namespace" name="bind_namespace" type="text" value="*"
+                 class="form-input font-mono text-sm" />
+        </div>
+        <div>
+          <label for="expires_days" class="form-label">有效期（天，留空 = 永不过期）</label>
+          <input id="expires_days" name="expires_days" type="number" min="1"
+                 class="form-input font-mono text-sm" />
+        </div>
+        <button type="submit" class="btn btn-primary w-full justify-center">
+          {{ icon("plus", class="h-4 w-4") }} 创建
+        </button>
+      </form>
+      <p class="mt-3 text-xs text-muted-foreground leading-relaxed">
+        创建后用 <span class="font-mono">Authorization: Bearer &lt;key&gt;</span> 调用 <span class="font-mono">/api/v1/*</span>。
+        鉴权中间件需设 <span class="font-mono">GPUCTL_API_AUTH=apikey</span> 才会强制校验 —— 未设时 Key 已可创建但暂不强制。
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

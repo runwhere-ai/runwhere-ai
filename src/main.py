@@ -128,6 +128,33 @@ def create_app() -> FastAPI:
     else:
         logger.warning("static dir %s does not exist; /static will 404", static_dir)
 
+    # ── API Key auth for /api/v1/* (Agent-First PRD Phase 0) ────────────────
+    # session_fallback lets the browser's own console session keep working
+    # against the JSON API without an API key — API keys are the mechanism
+    # for *external* callers (Agents) with per-key scopes. GPUCTL_API_AUTH=off
+    # (default) leaves /api/v1/* exactly as before (no auth) for compat.
+    from server.auth import install_api_auth
+    from server.routes.apikeys import set_store
+
+    async def _console_session_fallback(request, scope: str):
+        from src.webui.deps import get_auth_provider
+        from src.console.models import AuthError, Role
+
+        auth = get_auth_provider()
+        try:
+            user = await auth.authenticate(request)
+        except AuthError:
+            return None
+        # admin scope (key 管理) 需要真的是 admin 会话，不能靠"已登录"就放行——
+        # 否则 bearer 模式下 namespace_user 能靠浏览器会话自己给自己发 admin key。
+        if scope == "admin" and Role.ADMIN not in user.roles:
+            return None
+        return user
+
+    _auth_store = install_api_auth(app, session_fallback=_console_session_fallback)
+    if _auth_store is not None:
+        set_store(_auth_store)
+
     # ── Mount gpuctl's existing /api/v1/* routers ───────────────────────────
     # These are reused verbatim (CLI ↔ UI single source of truth, spec FR-117).
     try:
@@ -139,6 +166,7 @@ def create_app() -> FastAPI:
             global_labels_router,
             quotas_router,
             namespaces_router,
+            apikeys_router,
         )
 
         app.include_router(jobs_router)
@@ -148,6 +176,7 @@ def create_app() -> FastAPI:
         app.include_router(quotas_router)
         app.include_router(namespaces_router)
         app.include_router(global_labels_router)
+        app.include_router(apikeys_router)
         logger.info("gpuctl /api/v1/* routers mounted")
     except Exception as exc:  # pragma: no cover - boot-time wiring
         logger.warning("gpuctl routers not mounted (%s); /api/v1/* will be absent.", exc)

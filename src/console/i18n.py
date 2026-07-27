@@ -34,6 +34,7 @@ _ZH_CN: Final[dict[str, str]] = {
     "nav.quotas":                  "配额",
     "nav.namespaces":              "命名空间",
     "nav.cluster_config":          "集群配置",
+    "nav.api_keys":                "API Keys",
     "nav.account":                 "我的信息",
     "nav.logout":                  "退出登录",
 
